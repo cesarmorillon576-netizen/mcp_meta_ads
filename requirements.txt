@@ -1,0 +1,3 @@
+mcp
+facebook-business
+python-dotenv
