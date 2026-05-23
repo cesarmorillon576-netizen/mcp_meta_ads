@@ -83,16 +83,55 @@ Reinicia Claude Desktop para que detecte el nuevo servidor.
 
 Una vez configurado, puedes pedirle a Claude cosas como:
 
+**Consultas:**
 - *"Revisa las campañas de la cuenta 12345"*
 - *"¿Qué campañas activas tengo en la cuenta 67890?"*
+
+**Gestión de estados:**
+- *"Apaga la campaña 23456789"*
+- *"Enciende el conjunto de anuncios 98765"*
+- *"Pausa el anuncio 11223344"*
+
+**Reportes y KPIs:**
+- *"Dame el reporte de rendimiento de la cuenta 12345 del 2026-05-01 al 2026-05-23"*
+- *"¿Cuál fue el ROAS y el CPA de mis campañas esta semana?"*
+
+**Monitoreo de errores y fugas:**
+- *"Analiza si hay fugas de dinero en la cuenta 12345 en mayo"*
+- *"Revisa si hay anuncios rechazados o errores en la cuenta 12345"*
 
 ---
 
 ## Herramientas disponibles
 
+### Consulta de campañas
+
 | Herramienta | Descripción |
 |---|---|
-| `obtener_campanas` | Lista las campañas de una cuenta publicitaria con nombre, estado y presupuesto diario |
+| `obtener_campanas` | Lista las campañas de una cuenta con nombre, estado y presupuesto diario |
+
+### Gestión de estados
+
+| Herramienta | Parámetros | Descripción |
+|---|---|---|
+| `cambiar_estado_campana` | `campaign_id`, `accion` | Encender o apagar una campaña |
+| `cambiar_estado_conjunto` | `adset_id`, `accion` | Encender o apagar un conjunto de anuncios |
+| `cambiar_estado_anuncio` | `ad_id`, `accion` | Encender o apagar un anuncio individual |
+
+> `accion` acepta los valores: `"encender"` o `"apagar"`
+
+### Reportes de rendimiento y KPIs
+
+| Herramienta | Parámetros | Descripción |
+|---|---|---|
+| `reporte_rendimiento` | `account_id`, `fecha_inicio`, `fecha_fin` | Métricas por campaña: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA y ROAS |
+
+### Monitoreo de errores y fugas de dinero
+
+| Herramienta | Parámetros | Descripción |
+|---|---|---|
+| `detectar_fugas_dinero` | `account_id`, `fecha_inicio`, `fecha_fin` | Detecta campañas que gastan sin convertir, CTR bajo, CPA excesivo o sin entregas |
+| `monitorear_errores_cuenta` | `account_id` | Busca campañas, conjuntos y anuncios con errores, rechazos o problemas de entrega |
 
 ---
 
