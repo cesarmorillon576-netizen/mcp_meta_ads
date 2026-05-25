@@ -6,13 +6,13 @@ from facebook_business.adobjects.adaccount import AdAccount
 from facebook_business.adobjects.campaign import Campaign
 from facebook_business.adobjects.adset import AdSet
 from facebook_business.adobjects.ad import Ad
+from facebook_business.adobjects.user import User
 
 load_dotenv()
 
 APP_ID = os.getenv('META_APP_ID')
 APP_SECRET = os.getenv('META_APP_SECRET')
 ACCESS_TOKEN = os.getenv('META_ACCESS_TOKEN')
-
 if APP_ID and APP_SECRET and ACCESS_TOKEN:
     FacebookAdsApi.init(APP_ID, APP_SECRET, ACCESS_TOKEN)
 
@@ -48,9 +48,68 @@ def obtener_campanas(account_id: str) -> str:
         return f"Error al consultar la API de Meta: {str(e)}"
 
 
+@mcp.tool()
+def obtener_campanas_activas(account_id: str) -> str:
+    """Obtener solo las campañas con estado ACTIVE de una cuenta publicitaria."""
+    if not _credenciales_ok():
+        return _error_credenciales()
+    try:
+        cuenta = AdAccount(f'act_{account_id}')
+        campanas = cuenta.get_campaigns(
+            fields=['name', 'status', 'daily_budget', 'objective'],
+            params={'effective_status': ['ACTIVE']},
+        )
+        if not campanas:
+            return f"No hay campañas activas en la cuenta {account_id}"
+        resultados = []
+        for c in campanas:
+            presupuesto = c.get('daily_budget', 'no definido')
+            objetivo = c.get('objective', 'N/A')
+            resultados.append(
+                f"- Nombre: {c['name']} | Objetivo: {objetivo} | Presupuesto: ${presupuesto}/día"
+            )
+        return f"Campañas activas ({len(resultados)}):\n" + "\n".join(resultados)
+    except Exception as e:
+        return f"Error al consultar campañas activas: {str(e)}"
+
+
 # ─────────────────────────────────────────────
 # GESTIÓN DE ESTADOS (ENCENDER / APAGAR)
 # ─────────────────────────────────────────────
+
+@mcp.tool()
+def obtener_todas_campanas_activas() -> str:
+    """Obtener todas las campañas activas de todas las cuentas publicitarias accesibles con el token configurado."""
+    if not _credenciales_ok():
+        return _error_credenciales()
+    try:
+        cuentas = User('me').get_ad_accounts(fields=['id', 'name'])
+        if not cuentas:
+            return "No se encontraron cuentas publicitarias asociadas al token."
+
+        resultados = []
+        for cuenta in cuentas:
+            account_id = cuenta['id']
+            account_name = cuenta.get('name', account_id)
+            campanas = AdAccount(account_id).get_campaigns(
+                fields=['name', 'daily_budget', 'objective'],
+                params={'effective_status': ['ACTIVE']},
+            )
+            if campanas:
+                resultados.append(f"\nCuenta: {account_name} ({account_id}) — {len(campanas)} activa(s):")
+                for c in campanas:
+                    presupuesto = c.get('daily_budget', 'no definido')
+                    objetivo = c.get('objective', 'N/A')
+                    resultados.append(f"  - {c['name']} | Objetivo: {objetivo} | Presupuesto: ${presupuesto}/día")
+
+        if not resultados:
+            return "No hay campañas activas en ninguna de las cuentas accesibles."
+
+        total = sum(1 for r in resultados if r.startswith('  -'))
+        return f"Total campañas activas: {total}" + "".join(resultados)
+    except Exception as e:
+        return f"Error al consultar campañas activas: {str(e)}"
+
 
 @mcp.tool()
 def cambiar_estado_campana(campaign_id: str, accion: str) -> str:
