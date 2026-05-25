@@ -1,3 +1,10 @@
 mcp
-facebook-business
 python-dotenv
+
+# Meta Ads
+facebook-business
+
+# Google Ads
+google-ads
+google-auth
+google-auth-oauthlib

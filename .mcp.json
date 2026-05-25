@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "meta-ads": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["meta_ads/server.py"]
+    },
+    "google-ads": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["google_ads/server.py"]
+    }
+  }
+}

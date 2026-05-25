@@ -1,26 +1,35 @@
-# MCP Meta Ads
+# MCP Ads
 
-Servidor MCP que conecta Claude con la API de Meta Ads (Facebook Ads), permitiéndote consultar campañas publicitarias directamente desde el chat.
+Servidor MCP que conecta Claude con la API de **Meta Ads** y **Google Ads**, permitiéndote consultar y gestionar campañas publicitarias directamente desde el chat.
+
+---
 
 ## Requisitos
 
 - Python 3.10 o superior
-- Una cuenta de [Meta for Developers](https://developers.facebook.com) con acceso a la Marketing API
-- Claude Desktop instalado
+- Claude Code instalado
+- Credenciales de Meta Ads y/o Google Ads
 
 ---
 
-## Instalación en Windows
+## Instalación
 
-### 1. Clona o descarga el repositorio
+### 1. Clona el repositorio
 
-```cmd
+```bash
 git clone https://github.com/cesarmorillon576-netizen/mcp_meta_ads.git
 cd MCP_meta_ads
 ```
 
-### 2. Crea un entorno virtual
+### 2. Crea el entorno virtual
 
+**Linux / macOS / Servidor**
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
+**Windows**
 ```cmd
 python -m venv venv
 venv\Scripts\activate
@@ -28,120 +37,101 @@ venv\Scripts\activate
 
 ### 3. Instala las dependencias
 
-```cmd
+```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configura tus credenciales
+### 4. Configura las credenciales
 
-Copia el archivo de ejemplo y completa tus datos:
-
-```cmd
-copy .env.example .env
+```bash
+cp .env.example .env   # Linux/macOS
+copy .env.example .env  # Windows
 ```
 
-Abre el archivo `.env` con el Bloc de notas o cualquier editor y reemplaza los valores:
+Abre `.env` y completa los valores según las plataformas que vayas a usar:
 
 ```env
-META_APP_ID=tu_app_id
-META_APP_SECRET=tu_app_secret
-META_ACCESS_TOKEN=tu_token_permanente
-```
+# Meta Ads
+META_APP_ID=
+META_APP_SECRET=
+META_ACCESS_TOKEN=
 
-> No sabes cómo obtener estas credenciales? Revisa la sección [Obtener credenciales de Meta](#obtener-credenciales-de-meta) al final de este archivo.
+# Google Ads
+GOOGLE_ADS_DEVELOPER_TOKEN=
+GOOGLE_ADS_CLIENT_ID=
+GOOGLE_ADS_CLIENT_SECRET=
+GOOGLE_ADS_REFRESH_TOKEN=
+GOOGLE_ADS_LOGIN_CUSTOMER_ID=
+```
 
 ---
 
-## Configuración en Claude Desktop
+## Configuración del MCP en Claude Code
 
-Abre el archivo de configuración de Claude Desktop. En Windows se encuentra en:
+El archivo `.mcp.json` ya está incluido en el repositorio. Claude Code lo detecta automáticamente al abrir la carpeta del proyecto.
 
-```
-%APPDATA%\Claude\claude_desktop_config.json
-```
+**Importante:** el venv debe estar activo cuando inicies Claude Code para que el comando `python` apunte al entorno correcto.
 
-Agrega el servidor MCP dentro de `mcpServers`:
-
-```json
-{
-  "mcpServers": {
-    "meta-ads": {
-      "command": "C:\\ruta\\a\\tu\\proyecto\\venv\\Scripts\\python.exe",
-      "args": ["C:\\ruta\\a\\tu\\proyecto\\server.py"]
-    }
-  }
-}
+```bash
+source venv/bin/activate   # Linux/macOS
+venv\Scripts\activate       # Windows
 ```
 
-> Reemplaza `C:\\ruta\\a\\tu\\proyecto\\` con la ruta real donde clonaste el repositorio.
-
-Reinicia Claude Desktop para que detecte el nuevo servidor.
+Luego abre Claude Code desde esa misma terminal o carpeta y los servidores `meta-ads` y `google-ads` estarán disponibles.
 
 ---
 
-## Uso
+## Obtener credenciales
 
-Una vez configurado, puedes pedirle a Claude cosas como:
+### Meta Ads
 
-**Consultas:**
-- *"Revisa las campañas de la cuenta 12345"*
-- *"¿Qué campañas activas tengo en la cuenta 67890?"*
+1. Ve a [developers.facebook.com](https://developers.facebook.com) y crea una app de tipo **Business**
+2. Agrega el producto **Marketing API**
+3. En **Configuración → Básica** copia tu `App ID` y `App Secret`
+4. Ve a **Business Manager → Configuración → Usuarios del sistema**, crea un usuario de sistema y genera un token con los permisos `ads_read` y `ads_management`
+5. Asigna las cuentas publicitarias que quieras consultar al usuario de sistema desde **Agregar activos**
 
-**Gestión de estados:**
-- *"Apaga la campaña 23456789"*
-- *"Enciende el conjunto de anuncios 98765"*
-- *"Pausa el anuncio 11223344"*
+### Google Ads
 
-**Reportes y KPIs:**
-- *"Dame el reporte de rendimiento de la cuenta 12345 del 2026-05-01 al 2026-05-23"*
-- *"¿Cuál fue el ROAS y el CPA de mis campañas esta semana?"*
-
-**Monitoreo de errores y fugas:**
-- *"Analiza si hay fugas de dinero en la cuenta 12345 en mayo"*
-- *"Revisa si hay anuncios rechazados o errores en la cuenta 12345"*
+1. Ve a [Google Cloud Console](https://console.cloud.google.com) y crea un proyecto
+2. Activa la **Google Ads API**
+3. Crea credenciales OAuth 2.0 y obtén tu `client_id` y `client_secret`
+4. Genera un `refresh_token` con los scopes de Google Ads
+5. Solicita un `developer_token` en [Google Ads API Center](https://developers.google.com/google-ads/api/docs/get-started/dev-token)
 
 ---
 
 ## Herramientas disponibles
 
-### Consulta de campañas
-
-| Herramienta | Descripción |
-|---|---|
-| `obtener_campanas` | Lista las campañas de una cuenta con nombre, estado y presupuesto diario |
-
-### Gestión de estados
+### Meta Ads (`meta-ads`)
 
 | Herramienta | Parámetros | Descripción |
 |---|---|---|
+| `obtener_campanas` | `account_id` | Lista todas las campañas con estado y presupuesto |
+| `obtener_campanas_activas` | `account_id` | Solo campañas activas de una cuenta |
+| `obtener_todas_campanas_activas` | — | Campañas activas de todas las cuentas del token |
 | `cambiar_estado_campana` | `campaign_id`, `accion` | Encender o apagar una campaña |
 | `cambiar_estado_conjunto` | `adset_id`, `accion` | Encender o apagar un conjunto de anuncios |
-| `cambiar_estado_anuncio` | `ad_id`, `accion` | Encender o apagar un anuncio individual |
+| `cambiar_estado_anuncio` | `ad_id`, `accion` | Encender o apagar un anuncio |
+| `reporte_rendimiento` | `account_id`, `fecha_inicio`, `fecha_fin` | KPIs: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS |
+| `detectar_fugas_dinero` | `account_id`, `fecha_inicio`, `fecha_fin` | Detecta gasto sin conversiones, CTR bajo o CPA excesivo |
+| `monitorear_errores_cuenta` | `account_id` | Busca anuncios rechazados o con problemas de entrega |
 
-> `accion` acepta los valores: `"encender"` o `"apagar"`
-
-### Reportes de rendimiento y KPIs
-
-| Herramienta | Parámetros | Descripción |
-|---|---|---|
-| `reporte_rendimiento` | `account_id`, `fecha_inicio`, `fecha_fin` | Métricas por campaña: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA y ROAS |
-
-### Monitoreo de errores y fugas de dinero
+### Google Ads (`google-ads`)
 
 | Herramienta | Parámetros | Descripción |
 |---|---|---|
-| `detectar_fugas_dinero` | `account_id`, `fecha_inicio`, `fecha_fin` | Detecta campañas que gastan sin convertir, CTR bajo, CPA excesivo o sin entregas |
-| `monitorear_errores_cuenta` | `account_id` | Busca campañas, conjuntos y anuncios con errores, rechazos o problemas de entrega |
+| `obtener_campanas` | `customer_id` | Lista todas las campañas con estado y presupuesto |
+| `obtener_campanas_activas` | `customer_id` | Solo campañas activas de una cuenta |
+| `obtener_todas_campanas_activas` | — | Campañas activas de todas las cuentas accesibles |
+| `cambiar_estado_campana` | `customer_id`, `campaign_id`, `accion` | Encender o apagar una campaña |
+| `cambiar_estado_grupo` | `customer_id`, `ad_group_id`, `accion` | Encender o apagar un grupo de anuncios |
+| `cambiar_estado_anuncio` | `customer_id`, `ad_group_id`, `ad_id`, `accion` | Encender o apagar un anuncio |
+| `reporte_rendimiento` | `customer_id`, `fecha_inicio`, `fecha_fin` | KPIs por campaña |
+| `detectar_fugas_dinero` | `customer_id`, `fecha_inicio`, `fecha_fin` | Detecta gasto ineficiente |
+| `monitorear_errores_cuenta` | `customer_id` | Busca anuncios desaprobados o con problemas |
 
----
-
-## Obtener credenciales de Meta
-
-1. Ve a [developers.facebook.com](https://developers.facebook.com) y crea una app de tipo **Business**
-2. Agrega el producto **Marketing API**
-3. En **Configuración → Básica** copia tu `App ID` y `App Secret`
-4. Para el token, ve a **Business Manager → Configuración → Usuarios del sistema**, crea uno y genera un token con los permisos `ads_read` y `ads_management`
-5. Pega esos tres valores en tu archivo `.env`
+> `accion` acepta: `"encender"` o `"apagar"`
 
 ---
 
@@ -149,9 +139,13 @@ Una vez configurado, puedes pedirle a Claude cosas como:
 
 ```
 MCP_meta_ads/
-├── server.py          # Servidor MCP principal
-├── requirements.txt   # Dependencias de Python
-├── .env.example       # Plantilla de variables de entorno
-├── .env               # Tus credenciales (no subir a git)
+├── meta_ads/
+│   └── server.py
+├── google_ads/
+│   └── server.py
+├── .mcp.json
+├── requirements.txt
+├── .env.example
+├── .env               # no se sube a git
 └── README.md
 ```
