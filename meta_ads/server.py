@@ -20,7 +20,59 @@ def _credenciales_ok() -> bool:
     return bool(ACCESS_TOKEN)
 
 def _error_credenciales() -> str:
-    return "Error: No se encontraron las credenciales de Meta Ads API en el archivo .env"
+    return "❌ Error: No se encontraron las credenciales de Meta Ads en el archivo de configuración (.env)."
+
+def _account(account_id: str) -> AdAccount:
+    aid = account_id if account_id.startswith('act_') else f'act_{account_id}'
+    return AdAccount(aid)
+
+def _resolve_account(account_input: str) -> AdAccount:
+    """Acepta el ID numérico, 'act_XXX', o el nombre de la cuenta."""
+    account_input = account_input.strip()
+    if account_input.isdigit() or account_input.lower().startswith('act_'):
+        aid = account_input if account_input.lower().startswith('act_') else f'act_{account_input}'
+        return AdAccount(aid)
+    try:
+        cuentas = User('me').get_ad_accounts(fields=['id', 'name'])
+        for cuenta in cuentas:
+            if account_input.lower() in cuenta.get('name', '').lower():
+                return AdAccount(cuenta['id'])
+    except Exception:
+        pass
+    return AdAccount(account_input if account_input.lower().startswith('act_') else f'act_{account_input}')
+
+def _traductor_estado(status: str) -> str:
+    estados = {
+        'ACTIVE': '🟢 Activa',
+        'PAUSED': '⏸ Pausada',
+        'PENDING_REVIEW': '⏳ En revisión por Meta',
+        'DISAPPROVED': '❌ Rechazada',
+        'WITH_ISSUES': '⚠ Con problemas técnicos',
+        'ERROR': '❌ Error de configuración',
+        'CAMPAIGN_PAUSED': '⏸ Pausada (campaña madre apagada)',
+    }
+    return estados.get(status, f"Estatus: {status}")
+
+
+# ─────────────────────────────────────────────
+# UTILIDADES DE CONTEXTO
+# ─────────────────────────────────────────────
+
+@mcp.tool()
+def listar_cuentas_publicitarias() -> str:
+    """Listar todas las cuentas de anuncios disponibles con sus nombres e IDs."""
+    if not _credenciales_ok():
+        return _error_credenciales()
+    try:
+        cuentas = User('me').get_ad_accounts(fields=['id', 'name'])
+        if not cuentas:
+            return "No se encontraron cuentas publicitarias vinculadas a este perfil."
+        lineas = ["Cuentas Publicitarias Disponibles:\n"]
+        for cuenta in cuentas:
+            lineas.append(f"  • {cuenta.get('name', 'Sin Nombre')} | ID: {cuenta['id']}")
+        return "\n".join(lineas)
+    except Exception as e:
+        return f"No se pudieron listar las cuentas. Detalle: {str(e)}"
 
 
 # ─────────────────────────────────────────────
@@ -28,19 +80,19 @@ def _error_credenciales() -> str:
 # ─────────────────────────────────────────────
 
 @mcp.tool()
-def obtener_campanas(account_id: str) -> str:
-    """Obtener una lista de las campañas de una cuenta publicitaria con su estado y presupuesto."""
+def obtener_campanas(account_input: str) -> str:
+    """Obtener una lista de las campañas de una cuenta publicitaria con su estado y presupuesto, si no se especifica, ir a la tool de obtener todas las campañas activas"""
     if not _credenciales_ok():
         return _error_credenciales()
     try:
-        cuenta = AdAccount(f'act_{account_id}')
+        cuenta = _resolve_account(account_input)
         campanas = cuenta.get_campaigns(fields=[
             'name', 'status', 'daily_budget', 'lifetime_budget',
             'start_time', 'stop_time', 'objective',
         ])
         if not campanas:
-            return f"No se encontraron campañas para la cuenta {account_id}"
-        resultados = []
+            return f"No se encontraron campañas para la cuenta '{account_input}'."
+        resultados = [f"Campañas encontradas en '{account_input}':\n"]
         for c in campanas:
             daily = c.get('daily_budget')
             lifetime = c.get('lifetime_budget')
@@ -53,38 +105,40 @@ def obtener_campanas(account_id: str) -> str:
             inicio = c.get('start_time', 'N/A')
             fin = c.get('stop_time', 'sin fecha fin')
             objetivo = c.get('objective', 'N/A')
+            estado = _traductor_estado(c.get('status', ''))
             resultados.append(
-                f"- {c['name']}\n"
-                f"  Estado: {c['status']} | Objetivo: {objetivo}\n"
+                f"- {c['name']} (ID: {c['id']})\n"
+                f"  Estado: {estado} | Objetivo: {objetivo}\n"
                 f"  Presupuesto: {presupuesto}\n"
                 f"  Inicio: {inicio} | Fin: {fin}"
             )
-        return "Campañas encontradas:\n\n" + "\n\n".join(resultados)
+        return "\n\n".join(resultados)
     except Exception as e:
         return f"Error al consultar la API de Meta: {str(e)}"
 
 
 @mcp.tool()
-def obtener_campanas_activas(account_id: str) -> str:
+def obtener_campanas_activas(account_input: str) -> str:
     """Obtener solo las campañas con estado ACTIVE de una cuenta publicitaria."""
     if not _credenciales_ok():
         return _error_credenciales()
     try:
-        cuenta = AdAccount(f'act_{account_id}')
+        cuenta = _resolve_account(account_input)
         campanas = cuenta.get_campaigns(
             fields=['name', 'status', 'daily_budget', 'objective'],
             params={'effective_status': ['ACTIVE']},
         )
         if not campanas:
-            return f"No hay campañas activas en la cuenta {account_id}"
-        resultados = []
+            return f"No hay campañas activas en la cuenta '{account_input}'."
+        resultados = [f"Campañas activas ({len(campanas)}):\n"]
         for c in campanas:
-            presupuesto = c.get('daily_budget', 'no definido')
+            presupuesto = c.get('daily_budget')
+            p_str = f"${int(presupuesto)/100:.2f}/día" if presupuesto else "presupuesto variable"
             objetivo = c.get('objective', 'N/A')
             resultados.append(
-                f"- Nombre: {c['name']} | Objetivo: {objetivo} | Presupuesto: ${presupuesto}/día"
+                f"- {c['name']} (ID: {c['id']}) | Objetivo: {objetivo} | Inversión: {p_str}"
             )
-        return f"Campañas activas ({len(resultados)}):\n" + "\n".join(resultados)
+        return "\n".join(resultados)
     except Exception as e:
         return f"Error al consultar campañas activas: {str(e)}"
 
@@ -114,9 +168,10 @@ def obtener_todas_campanas_activas() -> str:
             if campanas:
                 resultados.append(f"\nCuenta: {account_name} ({account_id}) — {len(campanas)} activa(s):")
                 for c in campanas:
-                    presupuesto = c.get('daily_budget', 'no definido')
+                    daily = c.get('daily_budget')
+                    presupuesto = f"${int(daily)/100:.0f}/día" if daily else "no definido"
                     objetivo = c.get('objective', 'N/A')
-                    resultados.append(f"  - {c['name']} | Objetivo: {objetivo} | Presupuesto: ${presupuesto}/día")
+                    resultados.append(f"  - {c['name']} | Objetivo: {objetivo} | Presupuesto: {presupuesto}")
 
         if not resultados:
             return "No hay campañas activas en ninguna de las cuentas accesibles."
@@ -131,7 +186,7 @@ def obtener_todas_campanas_activas() -> str:
 def cambiar_estado_campana(campaign_id: str, accion: str) -> str:
     """
     Encender o apagar una campaña.
-    - campaign_id: ID de la campaña (sin 'act_')
+    - campaign_id: ID de la campaña
     - accion: 'encender' o 'apagar'
     """
     if not _credenciales_ok():
@@ -143,9 +198,33 @@ def cambiar_estado_campana(campaign_id: str, accion: str) -> str:
     try:
         campana = Campaign(campaign_id)
         campana.api_update(params={'status': nuevo_estado})
-        return f"Campaña {campaign_id} {'activada' if accion == 'encender' else 'pausada'} correctamente."
+        emoji = "🚀" if accion == 'encender' else "⏸"
+        return f"{emoji} Campaña {campaign_id} {'activada' if accion == 'encender' else 'pausada'} correctamente."
     except Exception as e:
         return f"Error al cambiar estado de la campaña: {str(e)}"
+
+
+@mcp.tool()
+def modificar_presupuesto_campana(campaign_id: str, nuevo_presupuesto: float, tipo_presupuesto: str) -> str:
+    """
+    Ajusta el presupuesto asignado a una campaña.
+    - campaign_id: ID de la campaña
+    - nuevo_presupuesto: monto en moneda local (ej: 1500.00)
+    - tipo_presupuesto: 'diario' o 'total'
+    """
+    if not _credenciales_ok():
+        return _error_credenciales()
+    tipo = tipo_presupuesto.strip().lower()
+    if tipo not in ('diario', 'total'):
+        return "Error: 'tipo_presupuesto' debe ser 'diario' o 'total'."
+    campo = 'daily_budget' if tipo == 'diario' else 'lifetime_budget'
+    monto_centavos = int(nuevo_presupuesto * 100)
+    try:
+        campana = Campaign(campaign_id)
+        campana.api_update(params={campo: monto_centavos})
+        return f"💰 Presupuesto {tipo} de la campaña {campaign_id} actualizado a ${nuevo_presupuesto:,.2f}."
+    except Exception as e:
+        return f"No se pudo actualizar el presupuesto: {str(e)}"
 
 
 @mcp.tool()
@@ -195,18 +274,17 @@ def cambiar_estado_anuncio(ad_id: str, accion: str) -> str:
 # ─────────────────────────────────────────────
 
 @mcp.tool()
-def reporte_rendimiento(account_id: str, fecha_inicio: str, fecha_fin: str) -> str:
+def reporte_rendimiento(account_input: str, fecha_inicio: str, fecha_fin: str) -> str:
     """
     Obtener métricas clave (KPIs) de la cuenta para un rango de fechas.
-    - account_id: ID de la cuenta publicitaria
-    - fecha_inicio: formato YYYY-MM-DD
-    - fecha_fin: formato YYYY-MM-DD
+    - account_input: ID o nombre de la cuenta publicitaria
+    - fecha_inicio / fecha_fin: formato YYYY-MM-DD
     Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.
     """
     if not _credenciales_ok():
         return _error_credenciales()
     try:
-        cuenta = AdAccount(f'act_{account_id}')
+        cuenta = _resolve_account(account_input)
         insights = cuenta.get_insights(
             fields=[
                 'campaign_name',
@@ -262,8 +340,7 @@ def reporte_rendimiento(account_id: str, fecha_inicio: str, fecha_fin: str) -> s
 def reporte_rendimiento_todas(fecha_inicio: str, fecha_fin: str) -> str:
     """
     Obtener métricas clave (KPIs) de todas las cuentas publicitarias accesibles para un rango de fechas.
-    - fecha_inicio: formato YYYY-MM-DD
-    - fecha_fin: formato YYYY-MM-DD
+    - fecha_inicio / fecha_fin: formato YYYY-MM-DD
     Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.
     """
     if not _credenciales_ok():
@@ -333,22 +410,92 @@ def reporte_rendimiento_todas(fecha_inicio: str, fecha_fin: str) -> str:
         return f"Error al obtener reporte de rendimiento: {str(e)}"
 
 
+@mcp.tool()
+def reporte_rendimiento_desglosado(account_input: str, fecha_inicio: str, fecha_fin: str, desglose: str) -> str:
+    """
+    Desglosa los resultados por segmento para saber a qué público o canal le va mejor.
+    - account_input: ID o nombre de la cuenta
+    - fecha_inicio / fecha_fin: formato YYYY-MM-DD
+    - desglose: 'age' (edades), 'gender' (género), o 'publisher_platform' (Facebook vs Instagram)
+    """
+    if not _credenciales_ok():
+        return _error_credenciales()
+    desglose = desglose.strip().lower()
+    titulos_desglose = {'age': 'Edades', 'gender': 'Géneros', 'publisher_platform': 'Plataformas (FB/IG)'}
+    titulo_actual = titulos_desglose.get(desglose, desglose.upper())
+    try:
+        cuenta = _resolve_account(account_input)
+        insights = cuenta.get_insights(
+            fields=['campaign_name', 'impressions', 'clicks', 'ctr', 'spend'],
+            params={
+                'time_range': {'since': fecha_inicio, 'until': fecha_fin},
+                'level': 'campaign',
+                'breakdowns': [desglose],
+            }
+        )
+        if not insights:
+            return f"No hay datos para desglosar en el período {fecha_inicio} → {fecha_fin}."
+
+        lineas = [f"Análisis de Rendimiento por {titulo_actual} ({fecha_inicio} → {fecha_fin})\n"]
+        traducciones = {
+            'instagram': 'Instagram',
+            'facebook': 'Facebook',
+            'messenger': 'Messenger',
+            'audience_network': 'Sitios web aliados',
+        }
+        for i in insights:
+            segmento = traducciones.get(i.get(desglose, 'Desconocido'), i.get(desglose, 'Desconocido'))
+            lineas.append(
+                f"  {i.get('campaign_name')} — {segmento}\n"
+                f"    Gasto: ${float(i.get('spend', 0)):,.2f} | Clics: {i.get('clicks', 0)} | CTR: {float(i.get('ctr', 0)):.2f}%\n"
+            )
+        return "\n".join(lineas)
+    except Exception as e:
+        return f"No se pudo construir el reporte desglosado: {str(e)}"
+
+
+# ─────────────────────────────────────────────
+# AUDITORÍA DE CREATIVOS
+# ─────────────────────────────────────────────
+
+@mcp.tool()
+def obtener_creativos_anuncio(account_input: str) -> str:
+    """Audita los textos y contenidos visuales de los anuncios de la cuenta."""
+    if not _credenciales_ok():
+        return _error_credenciales()
+    try:
+        cuenta = _resolve_account(account_input)
+        creativos = cuenta.get_ad_creatives(fields=['name', 'title', 'body'], params={'limit': 15})
+        if not creativos:
+            return "No se encontraron creativos registrados en esta cuenta."
+        lineas = ["Creativos de anuncios auditados:\n"]
+        for c in creativos:
+            lineas.append(
+                f"  Anuncio: {c.get('name', 'Sin nombre')} (ID: {c['id']})\n"
+                f"    Título: {c.get('title', 'Sin título')}\n"
+                f"    Texto:  {c.get('body', 'Sin texto')}\n"
+            )
+        return "\n".join(lineas)
+    except Exception as e:
+        return f"Error al leer los creativos: {str(e)}"
+
+
 # ─────────────────────────────────────────────
 # MONITOREO DE ERRORES Y FUGAS DE DINERO
 # ─────────────────────────────────────────────
 
 @mcp.tool()
-def detectar_fugas_dinero(account_id: str, fecha_inicio: str, fecha_fin: str) -> str:
+def detectar_fugas_dinero(account_input: str, fecha_inicio: str, fecha_fin: str) -> str:
     """
-    Analiza la cuenta en busca de campañas o conjuntos que gastan dinero sin generar resultados:
-    campañas activas sin conversiones, CTR muy bajo, CPA excesivo, y presupuesto sin entregas.
-    - account_id: ID de la cuenta publicitaria
+    Analiza la cuenta en busca de campañas que gastan dinero sin generar resultados:
+    campañas activas sin conversiones, CTR muy bajo, CPA excesivo, sin entregas.
+    - account_input: ID o nombre de la cuenta
     - fecha_inicio / fecha_fin: formato YYYY-MM-DD
     """
     if not _credenciales_ok():
         return _error_credenciales()
     try:
-        cuenta = AdAccount(f'act_{account_id}')
+        cuenta = _resolve_account(account_input)
         insights = cuenta.get_insights(
             fields=[
                 'campaign_name',
@@ -409,16 +556,16 @@ def detectar_fugas_dinero(account_id: str, fecha_inicio: str, fecha_fin: str) ->
 
 
 @mcp.tool()
-def monitorear_errores_cuenta(account_id: str) -> str:
+def monitorear_errores_cuenta(account_input: str) -> str:
     """
     Revisa el estado actual de campañas, conjuntos y anuncios en busca de errores de entrega,
     rechazos de anuncios, o configuraciones problemáticas.
-    - account_id: ID de la cuenta publicitaria
+    - account_input: ID o nombre de la cuenta
     """
     if not _credenciales_ok():
         return _error_credenciales()
     try:
-        cuenta = AdAccount(f'act_{account_id}')
+        cuenta = _resolve_account(account_input)
 
         campanas = cuenta.get_campaigns(fields=['name', 'status', 'effective_status'])
         conjuntos = cuenta.get_ad_sets(fields=['name', 'status', 'effective_status', 'issues_info'])
@@ -445,9 +592,9 @@ def monitorear_errores_cuenta(account_id: str) -> str:
                 errores.append(f"[ANUNCIO] {a['name']} — Estado: {a.get('effective_status')} | {detalle}")
 
         if not errores:
-            return f"No se encontraron errores activos en la cuenta {account_id}."
+            return f"No se encontraron errores activos en la cuenta '{account_input}'."
 
-        return f"Errores detectados en la cuenta {account_id}:\n\n" + "\n".join(f"⚠ {e}" for e in errores)
+        return f"Errores detectados en la cuenta '{account_input}':\n\n" + "\n".join(f"⚠ {e}" for e in errores)
 
     except Exception as e:
         return f"Error al monitorear la cuenta: {str(e)}"
