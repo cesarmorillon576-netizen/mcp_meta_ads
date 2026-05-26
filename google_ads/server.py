@@ -1,8 +1,9 @@
 import os
 from dotenv import load_dotenv
-from mcp.server.FastMCP import FastMCP
+from mcp.server.fastmcp import FastMCP
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
+
 
 load_dotenv()
 

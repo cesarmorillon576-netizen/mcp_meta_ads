@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from mcp.server.FastMCP import FastMCP
+from mcp.server.fastmcp import FastMCP
 from facebook_business.api import FacebookAdsApi
 from facebook_business.adobjects.adaccount import AdAccount
 from facebook_business.adobjects.campaign import Campaign
@@ -10,16 +10,14 @@ from facebook_business.adobjects.user import User
 
 load_dotenv()
 
-APP_ID = os.getenv('META_APP_ID')
-APP_SECRET = os.getenv('META_APP_SECRET')
 ACCESS_TOKEN = os.getenv('META_ACCESS_TOKEN')
-if APP_ID and APP_SECRET and ACCESS_TOKEN:
-    FacebookAdsApi.init(APP_ID, APP_SECRET, ACCESS_TOKEN)
+if ACCESS_TOKEN:
+    FacebookAdsApi.init(access_token=ACCESS_TOKEN)
 
 mcp = FastMCP("MetaAds")
 
 def _credenciales_ok() -> bool:
-    return bool(APP_ID and APP_SECRET and ACCESS_TOKEN)
+    return bool(ACCESS_TOKEN)
 
 def _error_credenciales() -> str:
     return "Error: No se encontraron las credenciales de Meta Ads API en el archivo .env"
@@ -36,14 +34,32 @@ def obtener_campanas(account_id: str) -> str:
         return _error_credenciales()
     try:
         cuenta = AdAccount(f'act_{account_id}')
-        campanas = cuenta.get_campaigns(fields=['name', 'status', 'daily_budget'])
+        campanas = cuenta.get_campaigns(fields=[
+            'name', 'status', 'daily_budget', 'lifetime_budget',
+            'start_time', 'stop_time', 'objective',
+        ])
         if not campanas:
             return f"No se encontraron campañas para la cuenta {account_id}"
         resultados = []
         for c in campanas:
-            presupuesto = c.get('daily_budget', 'no definido')
-            resultados.append(f"- Nombre: {c['name']} | Estado: {c['status']} | Presupuesto: ${presupuesto}/día")
-        return "Campañas encontradas:\n" + "\n".join(resultados)
+            daily = c.get('daily_budget')
+            lifetime = c.get('lifetime_budget')
+            if daily:
+                presupuesto = f"${int(daily)/100:.2f}/día"
+            elif lifetime:
+                presupuesto = f"${int(lifetime)/100:.2f} total"
+            else:
+                presupuesto = "no definido"
+            inicio = c.get('start_time', 'N/A')
+            fin = c.get('stop_time', 'sin fecha fin')
+            objetivo = c.get('objective', 'N/A')
+            resultados.append(
+                f"- {c['name']}\n"
+                f"  Estado: {c['status']} | Objetivo: {objetivo}\n"
+                f"  Presupuesto: {presupuesto}\n"
+                f"  Inicio: {inicio} | Fin: {fin}"
+            )
+        return "Campañas encontradas:\n\n" + "\n\n".join(resultados)
     except Exception as e:
         return f"Error al consultar la API de Meta: {str(e)}"
 
@@ -237,6 +253,81 @@ def reporte_rendimiento(account_id: str, fecha_inicio: str, fecha_fin: str) -> s
                 f"  CPA         : ${cpa}\n"
                 f"  ROAS        : {roas_val}\n"
             )
+        return "\n".join(lineas)
+    except Exception as e:
+        return f"Error al obtener reporte de rendimiento: {str(e)}"
+
+
+@mcp.tool()
+def reporte_rendimiento_todas(fecha_inicio: str, fecha_fin: str) -> str:
+    """
+    Obtener métricas clave (KPIs) de todas las cuentas publicitarias accesibles para un rango de fechas.
+    - fecha_inicio: formato YYYY-MM-DD
+    - fecha_fin: formato YYYY-MM-DD
+    Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.
+    """
+    if not _credenciales_ok():
+        return _error_credenciales()
+    try:
+        cuentas = User('me').get_ad_accounts(fields=['id', 'name'])
+        if not cuentas:
+            return "No se encontraron cuentas publicitarias asociadas al token."
+
+        lineas = [f"Reporte de rendimiento: {fecha_inicio} → {fecha_fin}\n"]
+
+        for cuenta in cuentas:
+            account_id = cuenta['id']
+            account_name = cuenta.get('name', account_id)
+            lineas.append(f"\n== Cuenta: {account_name} ({account_id}) ==")
+
+            insights = AdAccount(account_id).get_insights(
+                fields=[
+                    'campaign_name',
+                    'impressions',
+                    'clicks',
+                    'ctr',
+                    'spend',
+                    'cpm',
+                    'cpc',
+                    'actions',
+                    'cost_per_action_type',
+                    'purchase_roas',
+                ],
+                params={
+                    'time_range': {'since': fecha_inicio, 'until': fecha_fin},
+                    'level': 'campaign',
+                }
+            )
+
+            if not insights:
+                lineas.append("  Sin datos para este período.")
+                continue
+
+            for i in insights:
+                conversiones = next(
+                    (a['value'] for a in i.get('actions', []) if a['action_type'] == 'purchase'),
+                    '0'
+                )
+                cpa = next(
+                    (a['value'] for a in i.get('cost_per_action_type', []) if a['action_type'] == 'purchase'),
+                    'N/A'
+                )
+                roas = i.get('purchase_roas', [{}])
+                roas_val = roas[0].get('value', 'N/A') if roas else 'N/A'
+
+                lineas.append(
+                    f"\n  Campaña: {i.get('campaign_name', 'N/A')}\n"
+                    f"    Impresiones : {i.get('impressions', 0)}\n"
+                    f"    Clics       : {i.get('clicks', 0)}\n"
+                    f"    CTR         : {i.get('ctr', 0)}%\n"
+                    f"    Gasto       : ${i.get('spend', 0)}\n"
+                    f"    CPM         : ${i.get('cpm', 0)}\n"
+                    f"    CPC         : ${i.get('cpc', 0)}\n"
+                    f"    Conversiones: {conversiones}\n"
+                    f"    CPA         : ${cpa}\n"
+                    f"    ROAS        : {roas_val}"
+                )
+
         return "\n".join(lineas)
     except Exception as e:
         return f"Error al obtener reporte de rendimiento: {str(e)}"
