@@ -10,8 +10,12 @@ from facebook_business.adobjects.ad import Ad
 from facebook_business.adobjects.user import User
 
 # Cuando corre como .exe (PyInstaller), busca el .env junto al ejecutable
-_base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(_base_dir, '.env'))
+if getattr(sys, 'frozen', False):
+    _base_dir = os.path.dirname(sys.executable)
+    load_dotenv(os.path.join(_base_dir, '.env'))
+else:
+    # Busca el .env subiendo desde el directorio del script
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
 ACCESS_TOKEN = os.getenv('META_ACCESS_TOKEN')
 if ACCESS_TOKEN:
