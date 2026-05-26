@@ -1,0 +1,57 @@
+================================================
+  Meta & Google Ads Manager para Claude Desktop
+================================================
+
+REQUISITOS
+----------
+- Claude Desktop instalado (https://claude.ai/download)
+- Tokens de acceso de Meta Ads y/o Google Ads
+
+INSTALACION (3 pasos)
+---------------------
+
+1. EJECUTAR EL CONFIGURADOR
+   - Click derecho sobre "setup.ps1"
+   - Seleccionar "Ejecutar con PowerShell"
+   - Si Windows pide confirmacion de seguridad, hacer click en "Si"
+   - El script configura Claude Desktop automaticamente
+
+2. COMPLETAR LAS CREDENCIALES
+   El script abrira el archivo ".env" en Notepad.
+   Rellena los valores segun la plataforma que uses:
+
+   META ADS:
+     META_ACCESS_TOKEN=<tu token permanente de Meta Business>
+
+   GOOGLE ADS (todos los campos son obligatorios):
+     GOOGLE_ADS_DEVELOPER_TOKEN=<developer token>
+     GOOGLE_ADS_CLIENT_ID=<OAuth2 client id>
+     GOOGLE_ADS_CLIENT_SECRET=<OAuth2 client secret>
+     GOOGLE_ADS_REFRESH_TOKEN=<refresh token>
+     GOOGLE_ADS_LOGIN_CUSTOMER_ID=<ID cuenta manager, si aplica>
+
+   Guarda el archivo .env cuando termines (Ctrl+S).
+
+3. REINICIAR CLAUDE DESKTOP
+   Cierra y vuelve a abrir Claude Desktop.
+   Los servidores de Meta Ads y Google Ads apareceran disponibles.
+
+COMO USARLO
+-----------
+Una vez configurado, simplemente escribe en Claude lo que necesitas:
+
+  "Lista todas mis cuentas publicitarias de Meta"
+  "Muéstrame las campañas activas esta semana"
+  "Cuanto gastamos en Google Ads en mayo?"
+  "Hay campanas tirando dinero sin resultados?"
+  "Apaga la campana ID 12345678"
+
+SOPORTE
+-------
+Si algo no funciona, verifica que:
+- El archivo .env tiene los tokens correctos (sin espacios extra)
+- Claude Desktop esta completamente cerrado y vuelto a abrir
+- Los archivos meta_ads.exe y google_ads.exe estan en la misma
+  carpeta que el archivo .env
+
+================================================

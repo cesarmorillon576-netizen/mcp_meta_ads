@@ -1,4 +1,5 @@
 import os
+import sys
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from facebook_business.api import FacebookAdsApi
@@ -8,7 +9,9 @@ from facebook_business.adobjects.adset import AdSet
 from facebook_business.adobjects.ad import Ad
 from facebook_business.adobjects.user import User
 
-load_dotenv()
+# Cuando corre como .exe (PyInstaller), busca el .env junto al ejecutable
+_base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_base_dir, '.env'))
 
 ACCESS_TOKEN = os.getenv('META_ACCESS_TOKEN')
 if ACCESS_TOKEN:

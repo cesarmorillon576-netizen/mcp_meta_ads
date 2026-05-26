@@ -1,11 +1,13 @@
 import os
+import sys
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
 
-
-load_dotenv()
+# Cuando corre como .exe (PyInstaller), busca el .env junto al ejecutable
+_base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_base_dir, '.env'))
 
 mcp = FastMCP("GoogleAds")
 
