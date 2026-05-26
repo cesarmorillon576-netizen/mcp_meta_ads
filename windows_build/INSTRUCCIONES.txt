@@ -11,9 +11,9 @@ INSTALACION (3 pasos)
 ---------------------
 
 1. EJECUTAR EL CONFIGURADOR
-   - Click derecho sobre "setup.ps1"
-   - Seleccionar "Ejecutar con PowerShell"
-   - Si Windows pide confirmacion de seguridad, hacer click en "Si"
+   - Doble click sobre "setup.bat"
+   - Si Windows muestra aviso de seguridad (SmartScreen), click en
+     "Mas informacion" y luego "Ejecutar de todas formas"
    - El script configura Claude Desktop automaticamente
 
 2. COMPLETAR LAS CREDENCIALES

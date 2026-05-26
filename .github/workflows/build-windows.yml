@@ -37,6 +37,7 @@ jobs:
           Copy-Item dist\meta_ads.exe   dist\MetaAdsManager\
           Copy-Item dist\google_ads.exe dist\MetaAdsManager\
           Copy-Item .env.example        dist\MetaAdsManager\.env
+          Copy-Item windows_build\setup.bat            dist\MetaAdsManager\
           Copy-Item windows_build\setup.ps1          dist\MetaAdsManager\
           Copy-Item windows_build\INSTRUCCIONES.txt  dist\MetaAdsManager\
 
