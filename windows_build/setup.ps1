@@ -132,22 +132,65 @@ if (Test-Path $claudeConfigPath) {
     Write-OK "Se creara un nuevo archivo de configuracion"
 }
 
-# Asegurar que mcpServers exista y sea una estructura mutable (HashTable) si está vacío
+# Asegurar que mcpServers exista y sea una estructura mutable (HashTable)
 if (-not $config.PSObject.Properties['mcpServers'] -or $null -eq $config.mcpServers) {
     $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue @{} -Force
 }
 
+# --- 6b. Mostrar MCPs actuales y detectar si ya estan instalados --------------
+$servidoresActuales = @($config.mcpServers.PSObject.Properties | ForEach-Object { $_.Name })
+
+Write-Host ""
+if ($servidoresActuales.Count -eq 0) {
+    Write-Info "No hay servidores MCP configurados actualmente."
+} else {
+    Write-Info "Servidores MCP actualmente en Claude Desktop:"
+    foreach ($nombre in $servidoresActuales) {
+        $val = $config.mcpServers.$nombre
+        $cmd = if ($val -and $val.PSObject.Properties['command']) { $val.command } else { "(sin ruta)" }
+        if ($nombre -eq 'MetaAds' -or $nombre -eq 'GoogleAds') {
+            Write-Host ("    {0,-18} [YA INSTALADO]  {1}" -f $nombre, $cmd) -ForegroundColor Yellow
+        } else {
+            Write-Host ("    {0,-18}                 {1}" -f $nombre, $cmd) -ForegroundColor Gray
+        }
+    }
+}
+Write-Host ""
+
+$tieneMeta   = $servidoresActuales -contains 'MetaAds'
+$tieneGoogle = $servidoresActuales -contains 'GoogleAds'
+
+if ($tieneMeta -or $tieneGoogle) {
+    $cuales   = @(if ($tieneMeta) { "MetaAds" }; if ($tieneGoogle) { "GoogleAds" })
+    $listaStr = $cuales -join " y "
+    $verbo    = if ($cuales.Count -gt 1) { "estan instalados" } else { "esta instalado" }
+
+    Write-Warn "$listaStr ya $verbo."
+    Write-Host ""
+    Write-Host "    [S] Sobreescribir - actualiza la ruta del .exe al directorio actual" -ForegroundColor Gray
+    Write-Host "    [N] Cancelar - salir sin modificar nada" -ForegroundColor Gray
+    Write-Host ""
+    $respOver = Read-Host "  Que deseas hacer? (s/n)"
+    if ($respOver -notmatch '^[sS]$') {
+        Write-Host ""
+        Write-Info "Instalacion cancelada. Tu configuracion no fue modificada."
+        Write-Host ""
+        Read-Host "  Presiona Enter para salir"
+        exit 0
+    }
+    Write-Host ""
+}
+
 # --- 7. Inyectar servidores MCP -----------------------------------------------
 try {
-    $metaConfig = [PSCustomObject]@{ command = $metaExe; args = @() }
+    $metaConfig   = [PSCustomObject]@{ command = $metaExe;   args = @() }
     $googleConfig = [PSCustomObject]@{ command = $googleExe; args = @() }
 
-    # Manejar compatibilidad si mcpServers es HashTable u Objeto nativo deserializado
     if ($config.mcpServers -is [System.Collections.IDictionary]) {
-        $config.mcpServers["MetaAds"] = $metaConfig
+        $config.mcpServers["MetaAds"]   = $metaConfig
         $config.mcpServers["GoogleAds"] = $googleConfig
     } else {
-        $config.mcpServers.MetaAds = $metaConfig
+        $config.mcpServers.MetaAds   = $metaConfig
         $config.mcpServers.GoogleAds = $googleConfig
     }
     Write-OK "Servidores MCP preparados"
@@ -186,14 +229,33 @@ $envPath = Join-Path $scriptDir ".env"
 if (-not (Test-Path $envPath)) {
     Write-Warn "El archivo .env no existe. Se creara uno de plantilla."
     $plantilla = @"
+# =============================================================
 # Meta Ads
+# Token de acceso largo (nunca expira) desde:
+#   Meta Business Suite > Configuracion > Seguridad > Tokens
+#   o: https://developers.facebook.com/tools/explorer/
+# =============================================================
 META_ACCESS_TOKEN=
 
+# =============================================================
 # Google Ads
+# =============================================================
+# Token de desarrollador (aprobado por Google):
+#   https://ads.google.com/aw/apicenter
 GOOGLE_ADS_DEVELOPER_TOKEN=
+
+# OAuth2 - Client ID y Secret desde Google Cloud Console:
+#   https://console.cloud.google.com/apis/credentials
 GOOGLE_ADS_CLIENT_ID=
 GOOGLE_ADS_CLIENT_SECRET=
+
+# Refresh Token - Generalo con OAuth Playground:
+#   https://developers.google.com/oauthplayground/
+#   (scope: https://www.googleapis.com/auth/adwords)
 GOOGLE_ADS_REFRESH_TOKEN=
+
+# ID del cliente administrador MCC sin guiones (ej: 1234567890)
+# Dejalo vacio si solo manejas una cuenta directa.
 GOOGLE_ADS_LOGIN_CUSTOMER_ID=
 "@
     [System.IO.File]::WriteAllText($envPath, $plantilla, $utf8NoBom)
