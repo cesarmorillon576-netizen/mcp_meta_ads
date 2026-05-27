@@ -8,6 +8,7 @@ REQUISITOS
 - Claude Desktop instalado (https://claude.ai/download)
 - Tokens de acceso de Meta Ads y/o Google Ads
 - NO se requiere instalar Node.js ni ningun otro programa
+  (el paquete incluye su propio node.exe)
 
 INSTALACION (3 pasos)
 ---------------------
@@ -16,8 +17,12 @@ INSTALACION (3 pasos)
    - Doble click sobre "setup.bat"
    - Si Windows muestra aviso de seguridad (SmartScreen), haz click
      en "Mas informacion" y luego "Ejecutar de todas formas"
-   - El script detecta tu instalacion de Claude Desktop, muestra
-     los servidores ya configurados y te da a elegir:
+   - El script detecta Node.js, Claude Desktop y Claude Code, y te da
+     a elegir donde instalar:
+       [1] Claude Desktop + Claude Code  (ambos)
+       [2] Solo Claude Desktop
+       [3] Solo Claude Code (CLI/terminal)
+   - Si los servidores ya existen, puedes:
        [S] Sobreescribir  — reemplaza MetaAds y GoogleAds existentes
        [A] Agregar faltantes — solo instala los que no estan
        [N] Cancelar
@@ -52,9 +57,11 @@ INSTALACION (3 pasos)
 
    Guarda el archivo .env cuando termines (Ctrl+S en Notepad).
 
-3. REINICIAR CLAUDE DESKTOP
-   Cierra y vuelve a abrir Claude Desktop.
-   Los servidores MetaAds y GoogleAds apareceran disponibles.
+3. REINICIAR CLAUDE DESKTOP / CLAUDE CODE
+   - Claude Desktop: Cierra y vuelve a abrir. Los servidores MetaAds
+     y GoogleAds apareceran disponibles.
+   - Claude Code (terminal): Reinicia la sesion o ejecuta
+     claude mcp list para verificar que esten registrados.
 
 COMO USARLO
 -----------
@@ -70,7 +77,8 @@ Una vez configurado, escribe directamente en Claude lo que necesitas:
 DESINSTALAR
 -----------
 Ejecuta "uninstall.bat" para eliminar MetaAds y GoogleAds de la
-configuracion de Claude Desktop. El resto de tus MCPs no se toca.
+configuracion de Claude Desktop y Claude Code. El resto de tus
+MCPs no se toca.
 
 SOLUCION DE PROBLEMAS
 ---------------------
@@ -79,8 +87,8 @@ Si algo no funciona:
   1. Verifica que el archivo .env tiene los tokens correctos
      (sin espacios extra, sin comillas alrededor del valor)
 
-  2. Asegurate de que meta_ads.exe y google_ads.exe estan en la
-     misma carpeta que el archivo .env
+  2. Asegurate de que meta_ads.js, google_ads.js y .env estan en la
+     misma carpeta que este archivo INSTRUCCIONES.txt
 
   3. Cierra Claude Desktop completamente (barra de tareas) y
      vuelve a abrirlo
@@ -88,7 +96,11 @@ Si algo no funciona:
   4. Si ves "Server disconnected", revisa que el .env tiene
      los valores correctos para esa plataforma
 
-  5. Si Windows Defender bloquea los .exe, agrega la carpeta
-     como exclusion en Seguridad de Windows -> Exclusiones
+  5. Para Claude Code (terminal), ejecuta:
+     claude mcp list
+     Deberia aparecer MetaAds y/o GoogleAds en la lista.
+
+  6. Verifica que node.exe esta en la misma carpeta que los demas archivos.
+     Si falta, descarga de nuevo el paquete completo.
 
 ================================================

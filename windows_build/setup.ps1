@@ -1,4 +1,4 @@
-# setup.ps1 - Configurador de Meta & Google Ads Manager para Claude Desktop
+# setup.ps1 - Configurador de Meta & Google Ads Manager para Claude Desktop y Claude Code
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
@@ -27,8 +27,6 @@ Write-Host "  ================================================" -ForegroundColor
 Write-Host ""
 
 # --- 1. Detectar ejecucion desde dentro de un ZIP (carpeta temporal) -----------
-# Nota: se comprueba $tempPath solo si no esta vacio para evitar que "**" coincida
-# con cualquier ruta cuando $env:TEMP no esta definido.
 $tempPath = $env:TEMP
 $enZip = ($scriptDir -like "*\AppData\Local\Temp*") -or
          (-not [string]::IsNullOrEmpty($tempPath) -and ($scriptDir -like "*$tempPath*"))
@@ -48,13 +46,15 @@ try {
     Write-Warn "No se pudo desbloquear alguno de los archivos (normalmente no es problema)"
 }
 
-# --- 3. Validar ejecutables ----------------------------------------------------
-$metaExe   = Join-Path $scriptDir "meta_ads.exe"
-$googleExe = Join-Path $scriptDir "google_ads.exe"
+# --- 3. Validar archivos del paquete ------------------------------------------
+$metaJs   = Join-Path $scriptDir "meta_ads.js"
+$googleJs = Join-Path $scriptDir "google_ads.js"
+$localNodeExe = Join-Path $scriptDir "node.exe"
 
 foreach ($pair in @(
-    @{ Path = $metaExe;   Name = "meta_ads.exe"   },
-    @{ Path = $googleExe; Name = "google_ads.exe" }
+    @{ Path = $metaJs;   Name = "meta_ads.js"   },
+    @{ Path = $googleJs; Name = "google_ads.js" },
+    @{ Path = $localNodeExe; Name = "node.exe"  }
 )) {
     if (-not (Test-Path $pair.Path)) {
         Exit-Error `
@@ -67,9 +67,14 @@ foreach ($pair in @(
             "Descarga el paquete nuevamente desde la fuente original."
     }
 }
-Write-OK "Ejecutables validados"
+Write-OK "Archivos del paquete validados"
 
-# --- 4. Verificar Claude Desktop instalado (Soporte Web y Microsoft Store) -------
+# --- 4. Usar node.exe incluido en el paquete ----------------------------------
+$nodeExe = $localNodeExe
+$nodeVersion = & "$nodeExe" --version 2>&1
+Write-OK "Node.js listo: $nodeVersion (incluido en el paquete)"
+
+# --- 5. Verificar Claude Desktop instalado ------------------------------------
 $claudeConfigDir  = $null
 $claudeConfigPath = $null
 
@@ -81,8 +86,6 @@ if (Test-Path $pathWeb) {
 }
 
 # Opcion B: Instalacion desde la Microsoft Store
-# Se busca con wildcard "Claude_*" para no depender del hash exacto del publicador,
-# que puede cambiar entre versiones o actualizaciones de la app en la Store.
 if ($null -eq $claudeConfigDir) {
     $packagesDir = Join-Path $env:LOCALAPPDATA "Packages"
     if (Test-Path $packagesDir) {
@@ -90,7 +93,6 @@ if ($null -eq $claudeConfigDir) {
                      -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($claudePkg) {
             $localState = Join-Path $claudePkg.FullName "LocalState"
-            # Crear LocalState si la app existe pero no se ha ejecutado aun
             if (-not (Test-Path $localState)) {
                 $null = New-Item -ItemType Directory -Path $localState -Force
             }
@@ -100,183 +102,231 @@ if ($null -eq $claudeConfigDir) {
     }
 }
 
-# Si no se encontro en ningun lado
-if ($null -eq $claudeConfigDir) {
-    Exit-Error `
-        "Claude Desktop no esta instalado o no se detecto su ruta de configuracion." `
-        "Descargalo desde https://claude.ai/download , abrelo al menos una vez y vuelve a intentar."
+$tieneDesktop = $null -ne $claudeConfigDir
+if ($tieneDesktop) {
+    Write-OK "Claude Desktop detectado: $claudeConfigDir"
+} else {
+    Write-Warn "Claude Desktop no detectado. Se omitira su configuracion."
 }
 
-Write-OK "Claude Desktop detectado: $claudeConfigDir"
+# --- 6. Verificar Claude Code -------------------------------------------------
+$claudeCodeConfigPath = Join-Path $env:USERPROFILE ".claude.json"
+$tieneCode = Test-Path (Split-Path -Parent $claudeCodeConfigPath)  # el directorio Home siempre existe
+Write-Info "Claude Code (CLI) config: $claudeCodeConfigPath"
 
-# --- 5. Advertir si Claude Desktop esta corriendo ------------------------------
+# --- 7. Advertir si Claude Desktop esta corriendo -----------------------------
 $claudeRunning = Get-Process -Name "Claude" -ErrorAction SilentlyContinue
 if ($claudeRunning) {
-    Write-Warn "Claude Desktop esta abierto. Se aplicaran los cambios igual, pero"
-    Write-Warn "deberas cerrarlo y reabrirlo al finalizar para que surtan efecto."
     Write-Host ""
+    Write-Warn "Claude Desktop esta abierto. Los cambios se aplican, pero"
+    Write-Warn "deberas cerrarlo y reabrirlo al finalizar para que surtan efecto."
 }
 
-# --- 6. Leer configuracion existente ------------------------------------------
-$config = $null
+# --- 8. Leer configuracion existente de Claude Desktop ------------------------
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
 
-if (Test-Path $claudeConfigPath) {
-    try {
-        $raw = Get-Content $claudeConfigPath -Raw -Encoding UTF8
-        if ([string]::IsNullOrWhiteSpace($raw)) {
-            $config = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
-        } else {
-            $config = $raw | ConvertFrom-Json
-        }
-        Write-OK "Configuracion existente leida"
-    } catch {
-        $backup = "$claudeConfigPath.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+$configDesktop = $null
+if ($tieneDesktop) {
+    if (Test-Path $claudeConfigPath) {
         try {
-            Copy-Item $claudeConfigPath $backup -ErrorAction SilentlyContinue
-        } catch {}
-        Write-Warn "Config corrupta - se creo un backup en: $(Split-Path -Leaf $backup)"
-        $config = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
-    }
-} else {
-    $config = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
-    Write-OK "Se creara un nuevo archivo de configuracion"
-}
-
-# Normalizar mcpServers a HashTable mutable.
-# ConvertFrom-Json devuelve PSCustomObject (inmutable), lo pasamos a Hashtable.
-# Se distingue PSCustomObject de Hashtable para no copiar propiedades del sistema
-# (Count, Keys, IsReadOnly…) en el caso en que mcpServers ya sea un Hashtable.
-$ht = @{}
-if ($config.PSObject.Properties['mcpServers'] -and $null -ne $config.mcpServers) {
-    $src = $config.mcpServers
-    if ($src -is [hashtable]) {
-        foreach ($key in $src.Keys) { $ht[$key] = $src[$key] }
+            $raw = Get-Content $claudeConfigPath -Raw -Encoding UTF8
+            if ([string]::IsNullOrWhiteSpace($raw)) {
+                $configDesktop = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+            } else {
+                $configDesktop = $raw | ConvertFrom-Json
+            }
+            Write-OK "Config existente de Claude Desktop leida"
+        } catch {
+            $backup = "$claudeConfigPath.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+            try { Copy-Item $claudeConfigPath $backup -ErrorAction SilentlyContinue } catch {}
+            Write-Warn "Config corrupta - se creo backup: $(Split-Path -Leaf $backup)"
+            $configDesktop = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+        }
     } else {
-        foreach ($prop in $src.PSObject.Properties) { $ht[$prop.Name] = $prop.Value }
+        $configDesktop = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+        Write-OK "Se creara nueva config de Claude Desktop"
     }
 }
-$config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $ht -Force
 
-# --- 6b. Mostrar MCPs actuales y detectar si ya estan instalados --------------
-# $config.mcpServers es ahora un Hashtable; se usa .Keys para enumerar entradas.
-$servidoresActuales = @($config.mcpServers.Keys)
-
-Write-Host ""
-if ($servidoresActuales.Count -eq 0) {
-    Write-Info "No hay servidores MCP configurados actualmente."
-} else {
-    Write-Info "Servidores MCP actualmente en Claude Desktop:"
-    foreach ($nombre in $servidoresActuales) {
-        $val = $config.mcpServers[$nombre]
-        $cmd = if ($val -and $val.PSObject.Properties['command']) { $val.command } else { "(sin ruta)" }
-        if ($nombre -eq 'MetaAds' -or $nombre -eq 'GoogleAds') {
-            Write-Host ("    {0,-18} [YA INSTALADO]  {1}" -f $nombre, $cmd) -ForegroundColor Yellow
+# --- 8b. Leer configuracion existente de Claude Code -------------------------
+$configCode = $null
+if (Test-Path $claudeCodeConfigPath) {
+    try {
+        $raw = Get-Content $claudeCodeConfigPath -Raw -Encoding UTF8
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            $configCode = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
         } else {
-            Write-Host ("    {0,-18}                 {1}" -f $nombre, $cmd) -ForegroundColor Gray
+            $configCode = $raw | ConvertFrom-Json
+            if (-not $configCode.PSObject.Properties['mcpServers']) {
+                $configCode | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue ([PSCustomObject]@{}) -Force
+            }
+        }
+    } catch {
+        $configCode = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+    }
+} else {
+    $configCode = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+}
+
+# Funcion: Normalizar mcpServers a HashTable mutable
+function Get-McpHashtable {
+    param($config)
+    $ht = @{}
+    if ($config.PSObject.Properties['mcpServers'] -and $null -ne $config.mcpServers) {
+        $src = $config.mcpServers
+        if ($src -is [hashtable]) {
+            foreach ($key in $src.Keys) { $ht[$key] = $src[$key] }
+        } else {
+            foreach ($prop in $src.PSObject.Properties) { $ht[$prop.Name] = $prop.Value }
         }
     }
+    return $ht
+}
+
+# --- 8c. Mostrar MCPs actuales y preguntar que instalar -----------------------
+$htDesktop = if ($tieneDesktop) { Get-McpHashtable $configDesktop } else { @{} }
+$htCode    = Get-McpHashtable $configCode
+
+Write-Host ""
+Write-Host "  ---- Claude Desktop ----------------------------------------" -ForegroundColor DarkCyan
+if ($tieneDesktop) {
+    if ($htDesktop.Count -eq 0) {
+        Write-Info "  Sin servidores MCP configurados."
+    } else {
+        foreach ($nombre in $htDesktop.Keys) {
+            $cmd = if ($htDesktop[$nombre].PSObject.Properties['command']) { $htDesktop[$nombre].command } else { "(sin ruta)" }
+            $tag = if ($nombre -eq 'MetaAds' -or $nombre -eq 'GoogleAds') { " [YA INSTALADO]" } else { "" }
+            Write-Host ("    {0,-18}{1,-16}  {2}" -f $nombre, $tag, $cmd) -ForegroundColor $(if ($tag) { "Yellow" } else { "Gray" })
+        }
+    }
+} else {
+    Write-Info "  No detectado (se omitira)."
+}
+
+Write-Host ""
+Write-Host "  ---- Claude Code (CLI) -------------------------------------" -ForegroundColor DarkCyan
+if ($htCode.Count -eq 0) {
+    Write-Info "  Sin servidores MCP configurados."
+} else {
+    foreach ($nombre in $htCode.Keys) {
+        $cmd = if ($htCode[$nombre].PSObject.Properties['command']) { $htCode[$nombre].command } else { "(sin ruta)" }
+        $tag = if ($nombre -eq 'MetaAds' -or $nombre -eq 'GoogleAds') { " [YA INSTALADO]" } else { "" }
+        Write-Host ("    {0,-18}{1,-16}  {2}" -f $nombre, $tag, $cmd) -ForegroundColor $(if ($tag) { "Yellow" } else { "Gray" })
+    }
 }
 Write-Host ""
 
-$tieneMeta   = $servidoresActuales -contains 'MetaAds'
-$tieneGoogle = $servidoresActuales -contains 'GoogleAds'
+# Detectar si ya estan instalados
+$desktopTieneMeta   = $htDesktop.ContainsKey('MetaAds')
+$desktopTieneGoogle = $htDesktop.ContainsKey('GoogleAds')
+$codeTieneMeta      = $htCode.ContainsKey('MetaAds')
+$codeTieneGoogle    = $htCode.ContainsKey('GoogleAds')
 
-# Flags que indican que instalar (pueden cambiar segun eleccion del usuario)
+# Preguntar donde instalar
+Write-Host "  Donde instalar los servidores MCP?" -ForegroundColor White
+Write-Host "    [1] Claude Desktop + Claude Code  (ambos)" -ForegroundColor Gray
+Write-Host "    [2] Solo Claude Desktop" -ForegroundColor Gray
+Write-Host "    [3] Solo Claude Code (CLI)" -ForegroundColor Gray
+Write-Host "    [N] Cancelar" -ForegroundColor Gray
+Write-Host ""
+$destResp = Read-Host "  Elige una opcion (1/2/3/n)"
+
+$instalarDesktop = $false
+$instalarCode    = $false
+
+if ($destResp -match '^[1]$') {
+    $instalarDesktop = $tieneDesktop
+    $instalarCode    = $true
+    if (-not $tieneDesktop) { Write-Warn "Claude Desktop no detectado; se configurara solo Claude Code." }
+} elseif ($destResp -match '^[2]$') {
+    if (-not $tieneDesktop) {
+        Exit-Error "Claude Desktop no esta instalado." "Descargalo desde https://claude.ai/download y ejecutalo al menos una vez."
+    }
+    $instalarDesktop = $true
+} elseif ($destResp -match '^[3]$') {
+    $instalarCode = $true
+} else {
+    Write-Host ""; Write-Info "Instalacion cancelada."; Write-Host ""; Read-Host "  Presiona Enter para salir"; exit 0
+}
+
+# Preguntar sobreescribir si ya existen
 $instalarMeta   = $true
 $instalarGoogle = $true
 
-if ($tieneMeta -or $tieneGoogle) {
-    $cuales   = @(if ($tieneMeta) { "MetaAds" }; if ($tieneGoogle) { "GoogleAds" })
-    $listaStr = $cuales -join " y "
-    $verbo    = if ($cuales.Count -gt 1) { "estan instalados" } else { "esta instalado" }
+$yaHayMeta   = ($instalarDesktop -and $desktopTieneMeta)   -or ($instalarCode -and $codeTieneMeta)
+$yaHayGoogle = ($instalarDesktop -and $desktopTieneGoogle) -or ($instalarCode -and $codeTieneGoogle)
 
-    Write-Warn "$listaStr ya $verbo."
+if ($yaHayMeta -or $yaHayGoogle) {
+    $cuales = @(if ($yaHayMeta) { "MetaAds" }; if ($yaHayGoogle) { "GoogleAds" })
     Write-Host ""
-    Write-Host "    [S] Sobreescribir - reemplaza MetaAds y GoogleAds con la ruta actual" -ForegroundColor Gray
-    Write-Host "    [A] Agregar faltantes - solo instala los que aun no estan" -ForegroundColor Gray
-    Write-Host "    [N] Cancelar - salir sin modificar nada" -ForegroundColor Gray
+    Write-Warn "$($cuales -join ' y ') ya esta(n) instalado(s)."
+    Write-Host "    [S] Sobreescribir - reemplazar con la ruta actual" -ForegroundColor Gray
+    Write-Host "    [A] Agregar faltantes - solo instalar los que no estan" -ForegroundColor Gray
+    Write-Host "    [N] Cancelar" -ForegroundColor Gray
     Write-Host ""
-    $respOver = Read-Host "  Que deseas hacer? (s/a/n)"
+    $overResp = Read-Host "  Que deseas hacer? (s/a/n)"
 
-    if ($respOver -match '^[aA]$') {
-        $instalarMeta   = -not $tieneMeta
-        $instalarGoogle = -not $tieneGoogle
-
-        $faltantes = @(if ($instalarMeta) { "MetaAds" }; if ($instalarGoogle) { "GoogleAds" })
-        if ($faltantes.Count -eq 0) {
-            Write-Host ""
-            Write-Info "Ambos servidores ya estan instalados. No hay nada que agregar."
-            Write-Host ""
-            Read-Host "  Presiona Enter para salir"
-            exit 0
+    if ($overResp -match '^[aA]$') {
+        if ($instalarDesktop) {
+            $instalarMeta   = -not $desktopTieneMeta
+            $instalarGoogle = -not $desktopTieneGoogle
         }
-        Write-Host ""
-        Write-Info "Se instalaran solo: $($faltantes -join ', ')"
-        Write-Host ""
-    } elseif ($respOver -notmatch '^[sS]$') {
-        Write-Host ""
-        Write-Info "Instalacion cancelada. Tu configuracion no fue modificada."
-        Write-Host ""
-        Read-Host "  Presiona Enter para salir"
-        exit 0
+        if ($instalarCode) {
+            $instalarMeta   = $instalarMeta   -or (-not $codeTieneMeta)
+            $instalarGoogle = $instalarGoogle -or (-not $codeTieneGoogle)
+        }
+        if (-not $instalarMeta -and -not $instalarGoogle) {
+            Write-Host ""; Write-Info "Ambos ya estan instalados. Nada que agregar."; Write-Host ""; Read-Host "  Presiona Enter"; exit 0
+        }
+    } elseif ($overResp -notmatch '^[sS]$') {
+        Write-Host ""; Write-Info "Cancelado."; Write-Host ""; Read-Host "  Presiona Enter para salir"; exit 0
     }
-    Write-Host ""
 }
 
-# --- 6c. Backup de seguridad antes de modificar --------------------------------
-$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+# --- 9. Backup y escritura de configuraciones ---------------------------------
+$metaConfig   = [PSCustomObject]@{ command = $nodeExe; args = [string[]]@($metaJs) }
+$googleConfig = [PSCustomObject]@{ command = $nodeExe; args = [string[]]@($googleJs) }
 
-if (Test-Path $claudeConfigPath) {
-    $backup = "$claudeConfigPath.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+# Guardar Claude Desktop
+if ($instalarDesktop -and $tieneDesktop) {
+    if (Test-Path $claudeConfigPath) {
+        $bak = "$claudeConfigPath.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        try { Copy-Item $claudeConfigPath $bak -ErrorAction Stop; Write-OK "Backup Desktop: $(Split-Path -Leaf $bak)" } catch {}
+    }
+    $configDesktop | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $htDesktop -Force
+    if ($instalarMeta)   { $htDesktop['MetaAds']   = $metaConfig }
+    if ($instalarGoogle) { $htDesktop['GoogleAds'] = $googleConfig }
     try {
-        Copy-Item $claudeConfigPath $backup -ErrorAction Stop
-        Write-OK "Backup creado: $(Split-Path -Leaf $backup)"
+        [System.IO.File]::WriteAllText($claudeConfigPath, ($configDesktop | ConvertTo-Json -Depth 10), $utf8NoBom)
+        # Verificar
+        $saved = [System.IO.File]::ReadAllText($claudeConfigPath) | ConvertFrom-Json
+        $ok = $true
+        if ($instalarMeta   -and -not $saved.mcpServers.PSObject.Properties['MetaAds'])   { $ok = $false }
+        if ($instalarGoogle -and -not $saved.mcpServers.PSObject.Properties['GoogleAds']) { $ok = $false }
+        if ($ok) { Write-OK "Claude Desktop configurado" } else { throw "Verificacion fallo" }
     } catch {
-        Write-Warn "No se pudo crear backup (se continuara de todas formas): $_"
+        Exit-Error "No se pudo guardar config de Claude Desktop: $_"
     }
 }
 
-# --- 7. Inyectar servidores MCP -----------------------------------------------
-try {
-    # [string[]]@() garantiza serializacion como [] en vez de null (bug de PowerShell 5.x con @() vacio)
-    $metaConfig   = [PSCustomObject]@{ command = $metaExe;   args = [string[]]@() }
-    $googleConfig = [PSCustomObject]@{ command = $googleExe; args = [string[]]@() }
-
-    if ($instalarMeta)   { $config.mcpServers["MetaAds"]   = $metaConfig }
-    if ($instalarGoogle) { $config.mcpServers["GoogleAds"] = $googleConfig }
-    Write-OK "Servidores MCP preparados"
-} catch {
-    Exit-Error "No se pudieron estructurar los servidores MCP: $_"
-}
-
-# --- 8. Guardar config sin BOM ------------------------------------------------
-$jsonOut = $config | ConvertTo-Json -Depth 10
-
-try {
-    [System.IO.File]::WriteAllText($claudeConfigPath, $jsonOut, $utf8NoBom)
-} catch {
-    Exit-Error `
-        "No se pudo escribir la configuracion: $_" `
-        "Intenta cerrar Claude Desktop e intentar de nuevo."
-}
-
-# --- 9. Verificar que se guardo correctamente ----------------------------------
-try {
-    $saved = [System.IO.File]::ReadAllText($claudeConfigPath) | ConvertFrom-Json
-    $faltanTras = @()
-    if ($instalarMeta   -and -not $saved.mcpServers.PSObject.Properties['MetaAds'])   { $faltanTras += 'MetaAds'   }
-    if ($instalarGoogle -and -not $saved.mcpServers.PSObject.Properties['GoogleAds']) { $faltanTras += 'GoogleAds' }
-    if ($faltanTras.Count -gt 0) {
-        throw "Nodos MCP ausentes tras el guardado: $($faltanTras -join ', ')"
+# Guardar Claude Code
+if ($instalarCode) {
+    if (Test-Path $claudeCodeConfigPath) {
+        $bak = "$claudeCodeConfigPath.bak_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        try { Copy-Item $claudeCodeConfigPath $bak -ErrorAction Stop; Write-OK "Backup Code: $(Split-Path -Leaf $bak)" } catch {}
     }
-    Write-OK "Configuracion guardada y verificada"
-} catch {
-    Exit-Error `
-        "La configuracion se guardo pero la verificacion fallo: $_" `
-        "Revisa el archivo manualmente: $claudeConfigPath"
+    $configCode | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $htCode -Force
+    if ($instalarMeta)   { $htCode['MetaAds']   = $metaConfig }
+    if ($instalarGoogle) { $htCode['GoogleAds'] = $googleConfig }
+    try {
+        [System.IO.File]::WriteAllText($claudeCodeConfigPath, ($configCode | ConvertTo-Json -Depth 10), $utf8NoBom)
+        Write-OK "Claude Code configurado: $claudeCodeConfigPath"
+    } catch {
+        Exit-Error "No se pudo guardar config de Claude Code: $_"
+    }
 }
 
-# --- 10. Gestionar archivo .env ------------------------------------------------
+# --- 10. Gestionar archivo .env -----------------------------------------------
 $envPath = Join-Path $scriptDir ".env"
 
 if (-not (Test-Path $envPath)) {

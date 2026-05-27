@@ -1,15 +1,30 @@
 import path from 'path';
+import fs from 'fs';
 import * as dotenv from 'dotenv';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-// Detect pkg executable vs development
-const isFrozen = (process as any).pkg !== undefined;
-const baseDir = isFrozen
-  ? path.dirname(process.execPath)
-  : path.resolve(__dirname, '..', '..');
-dotenv.config({ path: path.join(baseDir, '.env') });
+// Find .env: next to the running script (production/windows_build) or project root (dev)
+function findEnvPath(): string {
+  if ((process as any).pkg !== undefined) {
+    return path.join(path.dirname(process.execPath), '.env');
+  }
+  const candidates = [
+    path.dirname(path.resolve(process.argv[1] ?? '')),
+    __dirname,
+    path.resolve(__dirname, '..', '..'),
+    process.cwd(),
+  ];
+  for (const dir of candidates) {
+    try {
+      const p = path.join(dir, '.env');
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return path.join(candidates[0] ?? process.cwd(), '.env');
+}
+dotenv.config({ path: findEnvPath() });
 
 const API_BASE = 'https://graph.facebook.com/v25.0';
 

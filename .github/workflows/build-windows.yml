@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build Windows Distribution
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -19,34 +19,35 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # Extract the Node.js version used for Windows so the cache key stays
+      # in sync automatically when build.mjs is updated.
+      - name: Get Node.js Windows version
+        id: node-win-ver
+        run: |
+          echo "version=$(grep 'NODE_VERSION' build.mjs | head -1 | grep -oP "v[\d.]+")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Windows node.exe
+        uses: actions/cache@v4
+        with:
+          path: windows_build/node.exe
+          key: node-win-x64-${{ steps.node-win-ver.outputs.version }}
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Compile TypeScript + bundle
+      # Compiles TS → bundles JS → copies to windows_build/ → downloads node.exe
+      # (download is skipped when the cache above restored node.exe)
+      - name: Build
         run: npm run build
 
-      - name: Build meta_ads.exe
-        run: npm run package:meta
-
-      - name: Build google_ads.exe
-        run: npm run package:google
-
-      - name: Prepare distribution package
-        shell: pwsh
+      - name: Create distribution ZIP
         run: |
-          New-Item -ItemType Directory -Force -Path dist\MetaAdsManager
-          Copy-Item dist\meta_ads.exe   dist\MetaAdsManager\
-          Copy-Item dist\google_ads.exe dist\MetaAdsManager\
-          Copy-Item .env.example        dist\MetaAdsManager\.env
-          Copy-Item windows_build\setup.bat           dist\MetaAdsManager\
-          Copy-Item windows_build\setup.ps1           dist\MetaAdsManager\
-          Copy-Item windows_build\uninstall.bat       dist\MetaAdsManager\
-          Copy-Item windows_build\uninstall.ps1       dist\MetaAdsManager\
-          Copy-Item windows_build\INSTRUCCIONES.txt   dist\MetaAdsManager\
+          cd windows_build
+          zip -r ../MetaAdsManager-Windows.zip . --exclude "*.bak*"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MetaAdsManager-Windows
-          path: dist\MetaAdsManager\
+          path: MetaAdsManager-Windows.zip
           retention-days: 30
