@@ -187,6 +187,21 @@ function Get-McpHashtable {
 $htDesktop = if ($tieneDesktop) { Get-McpHashtable $configDesktop } else { @{} }
 $htCode    = Get-McpHashtable $configCode
 
+function Get-McpJsPath {
+    param($entry)
+    if ($null -eq $entry) { return $null }
+    $a = $null
+    if ($entry -is [hashtable]) {
+        if ($entry.ContainsKey('args')) { $a = $entry['args'] }
+    } else {
+        try { $a = $entry.args } catch {}
+    }
+    if ($null -eq $a) { return $null }
+    $arr = @($a)
+    if ($arr.Count -gt 0) { return $arr[0] }
+    return $null
+}
+
 Write-Host ""
 Write-Host "  ---- Claude Desktop ----------------------------------------" -ForegroundColor DarkCyan
 if ($tieneDesktop) {
@@ -194,9 +209,10 @@ if ($tieneDesktop) {
         Write-Info "  Sin servidores MCP configurados."
     } else {
         foreach ($nombre in $htDesktop.Keys) {
-            $cmd = if ($htDesktop[$nombre].PSObject.Properties['command']) { $htDesktop[$nombre].command } else { "(sin ruta)" }
+            $jsPath = Get-McpJsPath $htDesktop[$nombre]
             $tag = if ($nombre -eq 'MetaAds' -or $nombre -eq 'GoogleAds') { " [YA INSTALADO]" } else { "" }
-            Write-Host ("    {0,-18}{1,-16}  {2}" -f $nombre, $tag, $cmd) -ForegroundColor $(if ($tag) { "Yellow" } else { "Gray" })
+            $display = if ($jsPath) { $jsPath } else { "(sin ruta)" }
+            Write-Host ("    {0,-18}{1,-16}  {2}" -f $nombre, $tag, $display) -ForegroundColor $(if ($tag) { "Yellow" } else { "Gray" })
         }
     }
 } else {
@@ -209,9 +225,10 @@ if ($htCode.Count -eq 0) {
     Write-Info "  Sin servidores MCP configurados."
 } else {
     foreach ($nombre in $htCode.Keys) {
-        $cmd = if ($htCode[$nombre].PSObject.Properties['command']) { $htCode[$nombre].command } else { "(sin ruta)" }
+        $jsPath = Get-McpJsPath $htCode[$nombre]
         $tag = if ($nombre -eq 'MetaAds' -or $nombre -eq 'GoogleAds') { " [YA INSTALADO]" } else { "" }
-        Write-Host ("    {0,-18}{1,-16}  {2}" -f $nombre, $tag, $cmd) -ForegroundColor $(if ($tag) { "Yellow" } else { "Gray" })
+        $display = if ($jsPath) { $jsPath } else { "(sin ruta)" }
+        Write-Host ("    {0,-18}{1,-16}  {2}" -f $nombre, $tag, $display) -ForegroundColor $(if ($tag) { "Yellow" } else { "Gray" })
     }
 }
 Write-Host ""
@@ -221,6 +238,26 @@ $desktopTieneMeta   = $htDesktop.ContainsKey('MetaAds')
 $desktopTieneGoogle = $htDesktop.ContainsKey('GoogleAds')
 $codeTieneMeta      = $htCode.ContainsKey('MetaAds')
 $codeTieneGoogle    = $htCode.ContainsKey('GoogleAds')
+
+# Advertir si las rutas guardadas no coinciden con la carpeta actual
+$rutasDesactualizadas = $false
+foreach ($ht in @($htDesktop, $htCode)) {
+    foreach ($key in @('MetaAds', 'GoogleAds')) {
+        if ($ht.ContainsKey($key)) {
+            $jsGuardado = Get-McpJsPath $ht[$key]
+            $jsEsperado = if ($key -eq 'MetaAds') { $metaJs } else { $googleJs }
+            if ($jsGuardado -and ($jsGuardado -ne $jsEsperado)) {
+                $rutasDesactualizadas = $true
+            }
+        }
+    }
+}
+if ($rutasDesactualizadas) {
+    Write-Host ""
+    Write-Warn "ATENCION: Las rutas guardadas NO coinciden con esta carpeta."
+    Write-Warn "Si moviste la carpeta del instalador, elige [S] Sobreescribir."
+    Write-Host ""
+}
 
 # Preguntar donde instalar
 Write-Host "  Donde instalar los servidores MCP?" -ForegroundColor White
@@ -284,8 +321,11 @@ if ($yaHayMeta -or $yaHayGoogle) {
 }
 
 # --- 9. Backup y escritura de configuraciones ---------------------------------
-$metaConfig   = [PSCustomObject]@{ command = $nodeExe; args = [string[]]@($metaJs) }
-$googleConfig = [PSCustomObject]@{ command = $nodeExe; args = [string[]]@($googleJs) }
+# Claude Desktop no usa "type", Claude Code requiere "type": "stdio"
+$metaConfigDesktop   = [PSCustomObject]@{ command = $nodeExe; args = [string[]]@($metaJs) }
+$googleConfigDesktop = [PSCustomObject]@{ command = $nodeExe; args = [string[]]@($googleJs) }
+$metaConfigCode   = [PSCustomObject]@{ type = "stdio"; command = $nodeExe; args = [string[]]@($metaJs) }
+$googleConfigCode = [PSCustomObject]@{ type = "stdio"; command = $nodeExe; args = [string[]]@($googleJs) }
 
 # Guardar Claude Desktop
 if ($instalarDesktop -and $tieneDesktop) {
@@ -294,10 +334,10 @@ if ($instalarDesktop -and $tieneDesktop) {
         try { Copy-Item $claudeConfigPath $bak -ErrorAction Stop; Write-OK "Backup Desktop: $(Split-Path -Leaf $bak)" } catch {}
     }
     $configDesktop | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $htDesktop -Force
-    if ($instalarMeta)   { $htDesktop['MetaAds']   = $metaConfig }
-    if ($instalarGoogle) { $htDesktop['GoogleAds'] = $googleConfig }
+    if ($instalarMeta)   { $htDesktop['MetaAds']   = $metaConfigDesktop }
+    if ($instalarGoogle) { $htDesktop['GoogleAds'] = $googleConfigDesktop }
     try {
-        [System.IO.File]::WriteAllText($claudeConfigPath, ($configDesktop | ConvertTo-Json -Depth 10), $utf8NoBom)
+        [System.IO.File]::WriteAllText($claudeConfigPath, ($configDesktop | ConvertTo-Json -Depth 20), $utf8NoBom)
         # Verificar
         $saved = [System.IO.File]::ReadAllText($claudeConfigPath) | ConvertFrom-Json
         $ok = $true
@@ -316,21 +356,26 @@ if ($instalarCode) {
         try { Copy-Item $claudeCodeConfigPath $bak -ErrorAction Stop; Write-OK "Backup Code: $(Split-Path -Leaf $bak)" } catch {}
     }
     $configCode | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $htCode -Force
-    if ($instalarMeta)   { $htCode['MetaAds']   = $metaConfig }
-    if ($instalarGoogle) { $htCode['GoogleAds'] = $googleConfig }
+    if ($instalarMeta)   { $htCode['MetaAds']   = $metaConfigCode }
+    if ($instalarGoogle) { $htCode['GoogleAds'] = $googleConfigCode }
     try {
-        [System.IO.File]::WriteAllText($claudeCodeConfigPath, ($configCode | ConvertTo-Json -Depth 10), $utf8NoBom)
-        Write-OK "Claude Code configurado: $claudeCodeConfigPath"
+        [System.IO.File]::WriteAllText($claudeCodeConfigPath, ($configCode | ConvertTo-Json -Depth 20), $utf8NoBom)
+        $savedCode = [System.IO.File]::ReadAllText($claudeCodeConfigPath) | ConvertFrom-Json
+        $okCode = $true
+        if ($instalarMeta   -and -not $savedCode.mcpServers.PSObject.Properties['MetaAds'])   { $okCode = $false }
+        if ($instalarGoogle -and -not $savedCode.mcpServers.PSObject.Properties['GoogleAds']) { $okCode = $false }
+        if ($okCode) { Write-OK "Claude Code configurado: $claudeCodeConfigPath" } else { throw "Verificacion fallo" }
     } catch {
         Exit-Error "No se pudo guardar config de Claude Code: $_"
     }
 }
 
 # --- 10. Gestionar archivo .env -----------------------------------------------
-$envPath = Join-Path $scriptDir ".env"
+$envPath   = Join-Path $scriptDir ".env"
+$envNuevo  = $false
 
 if (-not (Test-Path $envPath)) {
-    Write-Warn "El archivo .env no existe. Se creara uno de plantilla."
+    $envNuevo = $true
     $plantilla = @"
 # =============================================================
 # Meta Ads
@@ -365,34 +410,49 @@ GOOGLE_ADS_LOGIN_CUSTOMER_ID=
 }
 
 Write-Host ""
-Write-Host "  ------------------------------------------------" -ForegroundColor Yellow
-Write-Host "   ULTIMO PASO: completa tus credenciales en .env " -ForegroundColor Yellow
-Write-Host "  ------------------------------------------------" -ForegroundColor Yellow
-Write-Host ""
-Write-Info "Archivo: $envPath"
-Write-Host ""
-Write-Info "Valores a completar:"
-Write-Host "    META_ACCESS_TOKEN          (Meta Business)" -ForegroundColor Gray
-Write-Host "    GOOGLE_ADS_DEVELOPER_TOKEN" -ForegroundColor Gray
-Write-Host "    GOOGLE_ADS_CLIENT_ID" -ForegroundColor Gray
-Write-Host "    GOOGLE_ADS_CLIENT_SECRET" -ForegroundColor Gray
-Write-Host "    GOOGLE_ADS_REFRESH_TOKEN" -ForegroundColor Gray
-Write-Host ""
-
-$resp = Read-Host "  Abrir .env en Notepad ahora? (s/n)"
-if ($resp -match '^[sS]$') {
-    Start-Process notepad.exe -ArgumentList "`"$envPath`""
+if ($envNuevo) {
+    Write-Host "  ------------------------------------------------" -ForegroundColor Yellow
+    Write-Host "   ULTIMO PASO: completa tus credenciales en .env " -ForegroundColor Yellow
+    Write-Host "  ------------------------------------------------" -ForegroundColor Yellow
     Write-Host ""
-    Write-Info "Completa los valores y guarda con Ctrl+S."
+    Write-Info "Archivo: $envPath"
+    Write-Host ""
+    Write-Info "Valores a completar:"
+    Write-Host "    META_ACCESS_TOKEN              (Meta Ads)"    -ForegroundColor Gray
+    Write-Host "    GOOGLE_ADS_DEVELOPER_TOKEN     (Google Ads)"  -ForegroundColor Gray
+    Write-Host "    GOOGLE_ADS_CLIENT_ID           (Google Ads)"  -ForegroundColor Gray
+    Write-Host "    GOOGLE_ADS_CLIENT_SECRET       (Google Ads)"  -ForegroundColor Gray
+    Write-Host "    GOOGLE_ADS_REFRESH_TOKEN       (Google Ads)"  -ForegroundColor Gray
+    Write-Host "    GOOGLE_ADS_LOGIN_CUSTOMER_ID   (Google Ads, opcional)" -ForegroundColor Gray
+    Write-Host ""
+    $resp = Read-Host "  Abrir .env en Notepad ahora? (s/n)"
+    if ($resp -match '^[sS]$') {
+        Start-Process notepad.exe -ArgumentList "`"$envPath`""
+        Write-Host ""
+        Write-Info "Completa los valores y guarda con Ctrl+S."
+    }
+} else {
+    Write-OK "Credenciales existentes (.env): $envPath"
+    $resp = Read-Host "  Revisar o editar .env en Notepad? (s/n)"
+    if ($resp -match '^[sS]$') {
+        Start-Process notepad.exe -ArgumentList "`"$envPath`""
+        Write-Host ""
+        Write-Info "Guarda cualquier cambio con Ctrl+S."
+    }
 }
 
 # --- Fin -----------------------------------------------------------------------
 Write-Host ""
 Write-Host "  ================================================" -ForegroundColor Cyan
-if ($claudeRunning) {
-    Write-Host "   Cierra y reabre Claude Desktop para aplicar.  " -ForegroundColor Cyan
-} else {
-    Write-Host "   Abre Claude Desktop para comenzar a usarlo.   " -ForegroundColor Cyan
+if ($instalarDesktop -and $tieneDesktop) {
+    if ($claudeRunning) {
+        Write-Host "   Cierra y reabre Claude Desktop para aplicar.  " -ForegroundColor Cyan
+    } else {
+        Write-Host "   Abre Claude Desktop para comenzar a usarlo.   " -ForegroundColor Cyan
+    }
+}
+if ($instalarCode) {
+    Write-Host "   Claude Code: inicia una nueva sesion de CLI.   " -ForegroundColor Cyan
 }
 Write-Host "  ================================================" -ForegroundColor Cyan
 Write-Host ""

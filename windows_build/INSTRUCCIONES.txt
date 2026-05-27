@@ -1,5 +1,5 @@
 ================================================
-  Meta & Google Ads Manager para Claude Desktop
+  Meta & Google Ads Manager - Claude Desktop y Code
          Version 2.0  —  Node.js / TypeScript
 ================================================
 

@@ -25,7 +25,9 @@ Write-Host "  ================================================" -ForegroundColor
 Write-Host "   Meta & Google Ads Manager - Desinstalacion    " -ForegroundColor Cyan
 Write-Host "  ================================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Info "Este proceso eliminara los servidores MCP de Claude Desktop y Claude Code."
+Write-Info "Este proceso eliminara MetaAds y GoogleAds de:"
+Write-Host "    - Claude Desktop  (%APPDATA%\Claude\claude_desktop_config.json)" -ForegroundColor Gray
+Write-Host "    - Claude Code CLI (%USERPROFILE%\.claude.json)" -ForegroundColor Gray
 Write-Info "Los archivos .js y .env de esta carpeta NO se tocaran."
 Write-Host ""
 
@@ -68,7 +70,7 @@ function Remove-McpEntries {
     $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $mcpHash -Force
 
     try {
-        [System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8NoBom)
+        [System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 20), $utf8NoBom)
         Write-OK "$label : servidores eliminados correctamente"
     } catch {
         Write-Warn "No se pudo guardar $label config: $_"
@@ -131,9 +133,8 @@ Write-Host ""
 Write-Host "  ================================================" -ForegroundColor Cyan
 if ($claudeRunning) {
     Write-Host "   Cierra y reabre Claude Desktop para aplicar.  " -ForegroundColor Cyan
-} else {
-    Write-Host "   Desinstalacion completada correctamente.       " -ForegroundColor Cyan
 }
+Write-Host "   Desinstalacion completada correctamente.       " -ForegroundColor Cyan
 Write-Host "  ================================================" -ForegroundColor Cyan
 Write-Host ""
 Read-Host "  Presiona Enter para salir"
