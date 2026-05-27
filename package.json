@@ -1,0 +1,27 @@
+{
+  "name": "mcp-ads-manager",
+  "version": "2.0.0",
+  "description": "Servidor MCP para gestionar Meta Ads y Google Ads desde Claude Desktop",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "start:meta": "node dist/meta_ads/server.js",
+    "start:google": "node dist/google_ads/server.js",
+    "package:meta": "pkg dist/meta_ads/server.js --target node20-win-x64 --output dist/meta_ads.exe --compress GZip",
+    "package:google": "pkg dist/google_ads/server.js --target node20-win-x64 --output dist/google_ads.exe --compress GZip",
+    "package:all": "npm run package:meta && npm run package:google"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "@yao-pkg/pkg": "^5.12.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  }
+}

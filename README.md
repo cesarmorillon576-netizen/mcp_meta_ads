@@ -1,180 +1,185 @@
-# MCP Ads
+# Meta & Google Ads Manager — MCP Server
 
-Servidor MCP que conecta Claude con la API de **Meta Ads** y **Google Ads**, permitiéndote consultar y gestionar campañas publicitarias directamente desde el chat.
+Servidor MCP (Model Context Protocol) para gestionar campañas de **Meta Ads** y **Google Ads** directamente desde Claude Desktop o Claude Code, usando lenguaje natural.
 
 ---
 
 ## Requisitos
 
-- Python 3.10 o superior
-- Claude Code instalado
-- Credenciales de Meta Ads y/o Google Ads
+- **Node.js 20+** y **npm**
+- Claude Desktop o Claude Code
+- Credenciales de Meta Ads y/o Google Ads (ver sección de configuración)
 
 ---
 
-## Instalación
-
-### 1. Clona el repositorio
+## Instalación (desarrollo / Linux & macOS)
 
 ```bash
-git clone https://github.com/cesarmorillon576-netizen/mcp_meta_ads.git
-cd MCP_meta_ads
+git clone https://github.com/tu-usuario/mcp-ads-manager.git
+cd mcp-ads-manager
+npm install
+npm run build
 ```
 
-### 2. Crea el entorno virtual
-
-**Linux / macOS / Servidor**
-```bash
-python -m venv venv
-source venv/bin/activate
-```
-
-**Windows**
-```cmd
-python -m venv venv
-venv\Scripts\activate
-```
-
-### 3. Instala las dependencias
+Copia el archivo de credenciales y complétalo:
 
 ```bash
-pip install -r requirements.txt
+cp .env.example .env
+# edita .env con tus credenciales
 ```
 
-### 4. Configura las credenciales
-
-```bash
-cp .env.example .env   # Linux/macOS
-copy .env.example .env  # Windows
-```
-
-Abre `.env` y completa los valores según las plataformas que vayas a usar:
-
-```env
-# Meta Ads
-META_APP_ID=
-META_APP_SECRET=
-META_ACCESS_TOKEN=
-
-# Google Ads
-GOOGLE_ADS_DEVELOPER_TOKEN=
-GOOGLE_ADS_CLIENT_ID=
-GOOGLE_ADS_CLIENT_SECRET=
-GOOGLE_ADS_REFRESH_TOKEN=
-GOOGLE_ADS_LOGIN_CUSTOMER_ID=
-```
+El archivo `.mcp.json` ya está configurado; Claude Code lo detecta automáticamente.
 
 ---
 
-## Configuración del MCP en Claude Code
+## Instalación en Windows (ejecutable)
 
-El archivo `.mcp.json` ya está incluido en el repositorio. Claude Code lo detecta automáticamente al abrir la carpeta del proyecto.
+Descarga el paquete `MetaAdsManager-Windows.zip` desde la sección de **Releases** o **Artifacts** de GitHub Actions.
 
-**Importante:** el venv debe estar activo cuando inicies Claude Code para que el comando `python` apunte al entorno correcto.
+1. Extrae todos los archivos a una carpeta (ej. `C:\MetaAdsManager\`)
+2. Ejecuta `setup.bat` como usuario normal (no requiere administrador)
+3. Sigue las instrucciones en pantalla para completar el archivo `.env`
+4. Reinicia Claude Desktop
 
-```bash
-source venv/bin/activate   # Linux/macOS
-venv\Scripts\activate       # Windows
-```
-
-Luego abre Claude Code desde esa misma terminal o carpeta y los servidores `meta-ads` y `google-ads` estarán disponibles.
+Para desinstalar, ejecuta `uninstall.bat`.
 
 ---
 
-## Obtener credenciales
+## Configuración de credenciales
 
 ### Meta Ads
 
-1. Ve a [developers.facebook.com](https://developers.facebook.com) y crea una app de tipo **Business**
-2. Agrega el producto **Marketing API**
-3. En **Configuración → Básica** copia tu `App ID` y `App Secret`
-4. Ve a **Business Manager → Configuración → Usuarios del sistema**, crea un usuario de sistema y genera un token con los permisos `ads_read` y `ads_management`
-5. Asigna las cuentas publicitarias que quieras consultar al usuario de sistema desde **Agregar activos**
+En el archivo `.env`:
+
+```env
+META_ACCESS_TOKEN=tu_token_permanente_aqui
+```
+
+**Cómo obtener el token:**
+1. Ve a [Meta for Developers](https://developers.facebook.com/) → Mis Apps
+2. Crea una App de tipo **Business** con permisos de **Marketing API**
+3. Genera un token de larga duración (Long-Lived Token) en el Explorador de la API
+4. Activa los permisos: `ads_read`, `ads_management`, `business_management`
 
 ### Google Ads
 
-1. Ve a [Google Cloud Console](https://console.cloud.google.com) y crea un proyecto
-2. Activa la **Google Ads API**
-3. Crea credenciales OAuth 2.0 y obtén tu `client_id` y `client_secret`
-4. Genera un `refresh_token` con los scopes de Google Ads
-5. Solicita un `developer_token` en [Google Ads API Center](https://developers.google.com/google-ads/api/docs/get-started/dev-token)
+```env
+GOOGLE_ADS_DEVELOPER_TOKEN=tu_developer_token
+GOOGLE_ADS_CLIENT_ID=tu_client_id.apps.googleusercontent.com
+GOOGLE_ADS_CLIENT_SECRET=tu_client_secret
+GOOGLE_ADS_REFRESH_TOKEN=tu_refresh_token
+GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890  # ID del MCC, vacío si es cuenta directa
+```
+
+**Cómo obtener las credenciales:**
+1. **Developer Token:** [Google Ads API Center](https://ads.google.com/aw/apicenter)
+2. **Client ID & Secret:** [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → Credenciales OAuth 2.0
+3. **Refresh Token:** [OAuth Playground](https://developers.google.com/oauthplayground/) con scope `https://www.googleapis.com/auth/adwords`
 
 ---
 
 ## Herramientas disponibles
 
-### Meta Ads (`meta-ads`)
+### Meta Ads (18 herramientas)
 
-| Herramienta | Parámetros | Descripción |
-|---|---|---|
-| `listar_cuentas_publicitarias` | — | Lista todas las cuentas del token con nombre e ID |
-| `obtener_campanas` | `account_input`, `limite`*, `pagina_cursor`* | Lista campañas con estado y presupuesto |
-| `obtener_campanas_activas` | `account_input`, `limite`*, `pagina_cursor`* | Solo campañas activas de una cuenta |
-| `obtener_todas_campanas_activas` | `limite_por_cuenta`* | Campañas activas de todas las cuentas del token |
-| `cambiar_estado_campana` | `campaign_id`, `accion` | Encender o apagar una campaña |
-| `cambiar_estado_conjunto` | `adset_id`, `accion` | Encender o apagar un conjunto de anuncios |
-| `cambiar_estado_anuncio` | `ad_id`, `accion` | Encender o apagar un anuncio |
-| `modificar_presupuesto_campana` | `campaign_id`, `nuevo_presupuesto`, `tipo_presupuesto` | Ajusta el presupuesto diario o total de una campaña |
-| `reporte_rendimiento` | `account_input`, `fecha_inicio`, `fecha_fin`, `limite`*, `pagina_cursor`* | KPIs: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS |
-| `reporte_rendimiento_todas` | `fecha_inicio`, `fecha_fin`, `limite_por_cuenta`* | KPIs de todas las cuentas accesibles |
-| `reporte_rendimiento_desglosado` | `account_input`, `fecha_inicio`, `fecha_fin`, `desglose`, `limite`*, `pagina_cursor`* | Rendimiento segmentado por edad, género o plataforma |
-| `obtener_creativos_anuncio` | `account_input`, `limite`*, `pagina_cursor`* | Audita textos y títulos de los creativos |
-| `detectar_fugas_dinero` | `account_input`, `fecha_inicio`, `fecha_fin`, `limite`*, `pagina_cursor`* | Detecta gasto sin conversiones, CTR bajo o CPA excesivo |
-| `monitorear_errores_cuenta` | `account_input`, `limite`* | Busca anuncios rechazados o con problemas de entrega |
-
-> `accion` acepta: `"encender"` o `"apagar"`
-> `tipo_presupuesto` acepta: `"diario"` o `"total"`
-> `desglose` acepta: `"age"`, `"gender"` o `"publisher_platform"`
-> Los parámetros marcados con `*` son opcionales.
-
-#### Paginación
-
-Las herramientas de consulta traen un número limitado de resultados por llamada para evitar respuestas lentas. Cuando hay más datos disponibles, la respuesta incluye al final:
-
-```
-📄 Siguiente página → pagina_cursor='AbCdEf...'
-```
-
-Pasa ese valor en el parámetro `pagina_cursor` de la siguiente llamada para obtener la siguiente página. Los valores por defecto son:
-
-| Parámetro | Default |
+| Herramienta | Descripción |
 |---|---|
-| `limite` en campañas | 20 |
-| `limite` en insights/reportes | 25 |
-| `limite` en desglosado | 30 |
-| `limite` en creativos | 15 |
-| `limite` en errores | 50 |
-| `limite_por_cuenta` (todas las cuentas) | 10–20 |
+| `listar_cuentas_publicitarias` | Lista todas las cuentas vinculadas al token |
+| `obtener_campanas` | Campañas de una cuenta (estado, presupuesto, fechas) |
+| `obtener_campanas_activas` | Solo campañas activas de una cuenta |
+| `obtener_todas_campanas_activas` | Activas de todas las cuentas accesibles |
+| `obtener_conjuntos` | Ad Sets de una cuenta o campaña |
+| `obtener_anuncios` | Ads de una cuenta, campaña o conjunto |
+| `obtener_creativos_anuncio` | Textos y títulos de los creativos |
+| `obtener_segmentacion_conjunto` | Targeting completo de un Ad Set |
+| `cambiar_estado_campana` | Encender/apagar campaña |
+| `cambiar_estado_conjunto` | Encender/apagar Ad Set |
+| `cambiar_estado_anuncio` | Encender/apagar anuncio individual |
+| `modificar_presupuesto_campana` | Ajustar presupuesto diario o total |
+| `modificar_presupuesto_conjunto` | Ajustar presupuesto de Ad Set (ABO) |
+| `reporte_rendimiento` | KPIs por campaña (impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS) |
+| `reporte_rendimiento_todas` | KPIs de todas las cuentas |
+| `reporte_rendimiento_desglosado` | Desglose por edad, género o plataforma |
+| `detectar_fugas_dinero` | Campañas con gasto sin resultados, CTR bajo, CPA alto |
+| `monitorear_errores_cuenta` | Campañas/conjuntos/anuncios con errores o rechazos |
 
-### Google Ads (`google-ads`)
+**Paginación:** Las herramientas de consulta devuelven un `pagina_cursor` al final cuando hay más resultados. Pásalo en la siguiente llamada para ver la siguiente página.
 
-| Herramienta | Parámetros | Descripción |
-|---|---|---|
-| `obtener_campanas` | `customer_id` | Lista todas las campañas con estado y presupuesto |
-| `obtener_campanas_activas` | `customer_id` | Solo campañas activas de una cuenta |
-| `obtener_todas_campanas_activas` | — | Campañas activas de todas las cuentas accesibles |
-| `cambiar_estado_campana` | `customer_id`, `campaign_id`, `accion` | Encender o apagar una campaña |
-| `cambiar_estado_grupo` | `customer_id`, `ad_group_id`, `accion` | Encender o apagar un grupo de anuncios |
-| `cambiar_estado_anuncio` | `customer_id`, `ad_group_id`, `ad_id`, `accion` | Encender o apagar un anuncio |
-| `reporte_rendimiento` | `customer_id`, `fecha_inicio`, `fecha_fin` | KPIs por campaña |
-| `detectar_fugas_dinero` | `customer_id`, `fecha_inicio`, `fecha_fin` | Detecta gasto ineficiente |
-| `monitorear_errores_cuenta` | `customer_id` | Busca anuncios desaprobados o con problemas |
+### Google Ads (9 herramientas)
 
-> `accion` acepta: `"encender"` o `"apagar"`
+| Herramienta | Descripción |
+|---|---|
+| `obtener_campanas` | Todas las campañas de una cuenta |
+| `obtener_campanas_activas` | Solo campañas ENABLED |
+| `obtener_todas_campanas_activas` | Activas en todas las cuentas accesibles |
+| `cambiar_estado_campana` | Encender/apagar campaña |
+| `cambiar_estado_grupo` | Encender/apagar Ad Group |
+| `cambiar_estado_anuncio` | Encender/apagar anuncio |
+| `reporte_rendimiento` | KPIs por campaña para un rango de fechas |
+| `detectar_fugas_dinero` | Campañas con gasto sin conversiones, CTR bajo, CPA alto |
+| `monitorear_errores_cuenta` | Anuncios rechazados o con problemas de política |
 
 ---
 
 ## Estructura del proyecto
 
 ```
-MCP_meta_ads/
-├── meta_ads/
-│   └── server.py
-├── google_ads/
-│   └── server.py
-├── .mcp.json
-├── requirements.txt
+mcp-ads-manager/
+├── src/
+│   ├── meta_ads/
+│   │   └── server.ts        # Servidor Meta Ads (18 herramientas)
+│   └── google_ads/
+│       └── server.ts        # Servidor Google Ads (9 herramientas)
+├── dist/                    # Salida compilada (generada por tsc)
+├── windows_build/
+│   ├── setup.bat            # Instalador Windows (lanzador)
+│   ├── setup.ps1            # Instalador Windows (lógica principal)
+│   ├── uninstall.bat        # Desinstalador (lanzador)
+│   └── uninstall.ps1        # Desinstalador (lógica principal)
+├── .github/workflows/
+│   └── build-windows.yml    # CI/CD: compila y empaqueta .exe en Windows
+├── package.json
+├── tsconfig.json
 ├── .env.example
-├── .env               # no se sube a git
-└── README.md
+└── .mcp.json                # Config MCP para Claude Code (desarrollo)
 ```
+
+---
+
+## Compilar y empaquetar (desarrollo)
+
+```bash
+# Compilar TypeScript → JavaScript
+npm run build
+
+# Iniciar servidores en modo desarrollo
+npm run start:meta
+npm run start:google
+
+# Crear ejecutables Windows (requiere Windows o GitHub Actions)
+npm run package:all
+```
+
+Los ejecutables se generan en `dist/meta_ads.exe` y `dist/google_ads.exe`.
+
+---
+
+## CI/CD — Build automático de Windows
+
+El workflow `.github/workflows/build-windows.yml` se activa al hacer push a la rama `build/windows-exe` o manualmente desde GitHub Actions → **Run workflow**.
+
+Pasos automáticos:
+1. Instala Node.js 20 y dependencias (`npm ci`)
+2. Compila TypeScript (`npm run build`)
+3. Genera los `.exe` con `@yao-pkg/pkg` (Node.js embebido, sin dependencias externas)
+4. Sube el artefacto `MetaAdsManager-Windows` con todo listo para distribuir
+
+---
+
+## Tecnologías
+
+- **Runtime:** Node.js 20 + TypeScript 5
+- **MCP Framework:** `@modelcontextprotocol/sdk`
+- **HTTP:** `axios` (Meta Graph API v21.0, Google Ads REST API v18)
+- **Validación:** `zod`
+- **Empaquetado Windows:** `@yao-pkg/pkg`

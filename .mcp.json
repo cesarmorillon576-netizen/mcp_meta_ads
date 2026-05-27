@@ -2,13 +2,13 @@
   "mcpServers": {
     "meta-ads": {
       "type": "stdio",
-      "command": "venv/bin/python",
-      "args": ["meta_ads/server.py"]
+      "command": "node",
+      "args": ["dist/meta_ads/server.js"]
     },
     "google-ads": {
       "type": "stdio",
-      "command": "venv/bin/python",
-      "args": ["google_ads/server.py"]
+      "command": "node",
+      "args": ["dist/google_ads/server.js"]
     }
   }
 }
