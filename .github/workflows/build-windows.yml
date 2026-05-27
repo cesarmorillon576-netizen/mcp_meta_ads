@@ -2,7 +2,7 @@ name: Build Windows EXE
 
 on:
   push:
-    branches: [build/windows-exe]
+    branches: [typescript]
   workflow_dispatch:
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Compile TypeScript
+      - name: Compile TypeScript + bundle
         run: npm run build
 
       - name: Build meta_ads.exe

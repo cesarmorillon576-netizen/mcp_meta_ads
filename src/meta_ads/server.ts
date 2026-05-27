@@ -1,6 +1,5 @@
 import path from 'path';
 import * as dotenv from 'dotenv';
-import axios, { AxiosError } from 'axios';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -28,17 +27,17 @@ function errorCredenciales(): string {
 }
 
 async function metaGet(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
-  const resp = await axios.get(`${API_BASE}${endpoint}`, {
-    params: { access_token: ACCESS_TOKEN, ...params },
-  });
-  return resp.data;
+  const qs = new URLSearchParams({ access_token: ACCESS_TOKEN });
+  for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
+  const resp = await fetch(`${API_BASE}${endpoint}?${qs}`);
+  return resp.json();
 }
 
 async function metaPost(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
-  const resp = await axios.post(`${API_BASE}${endpoint}`, null, {
-    params: { access_token: ACCESS_TOKEN, ...params },
-  });
-  return resp.data;
+  const qs = new URLSearchParams({ access_token: ACCESS_TOKEN });
+  for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
+  const resp = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', body: qs });
+  return resp.json();
 }
 
 function traducirEstado(status: string): string {
@@ -81,15 +80,14 @@ function presupuestoStr(daily?: string, lifetime?: string): string {
 }
 
 function nextCursor(data: any): string | null {
-  return data?.paging?.cursors?.after ?? data?.paging?.next ? (data.paging.cursors?.after ?? null) : null;
+  return data?.paging?.cursors?.after ?? (data?.paging?.next ? (data.paging.cursors?.after ?? null) : null);
 }
 
 // ─── UTILIDADES DE CONTEXTO ───────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'listar_cuentas_publicitarias',
-  'Listar todas las cuentas de anuncios disponibles con sus nombres e IDs.',
-  {},
+  { description: 'Listar todas las cuentas de anuncios disponibles con sus nombres e IDs.' },
   async () => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
@@ -109,13 +107,15 @@ server.tool(
 
 // ─── CONSULTA DE CAMPAÑAS ─────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'obtener_campanas',
-  'Obtener campañas de una cuenta publicitaria con estado y presupuesto. Parámetros: account_input (ID o nombre), limite (default 20), pagina_cursor (cursor de página anterior).',
   {
-    account_input: z.string().describe('ID numérico, act_XXX o nombre de la cuenta publicitaria'),
-    limite: z.number().int().default(20).describe('Campañas por página'),
-    pagina_cursor: z.string().default('').describe('Cursor devuelto en respuesta anterior para ver siguiente página'),
+    description: 'Obtener campañas de una cuenta publicitaria con estado y presupuesto. Parámetros: account_input (ID o nombre), limite (default 20), pagina_cursor (cursor de página anterior).',
+    inputSchema: {
+      account_input: z.string().describe('ID numérico, act_XXX o nombre de la cuenta publicitaria'),
+      limite: z.number().int().default(20).describe('Campañas por página'),
+      pagina_cursor: z.string().default('').describe('Cursor devuelto en respuesta anterior para ver siguiente página'),
+    },
   },
   async ({ account_input, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -150,13 +150,15 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'obtener_campanas_activas',
-  'Obtener campañas ACTIVE de una cuenta publicitaria. Parámetros: account_input, limite (default 20), pagina_cursor.',
   {
-    account_input: z.string().describe('ID numérico, act_XXX o nombre de la cuenta'),
-    limite: z.number().int().default(20),
-    pagina_cursor: z.string().default(''),
+    description: 'Obtener campañas ACTIVE de una cuenta publicitaria. Parámetros: account_input, limite (default 20), pagina_cursor.',
+    inputSchema: {
+      account_input: z.string().describe('ID numérico, act_XXX o nombre de la cuenta'),
+      limite: z.number().int().default(20),
+      pagina_cursor: z.string().default(''),
+    },
   },
   async ({ account_input, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -188,11 +190,13 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'obtener_todas_campanas_activas',
-  'Obtener campañas activas de todas las cuentas accesibles. Parámetro: limite_por_cuenta (default 10).',
   {
-    limite_por_cuenta: z.number().int().default(10).describe('Máximo de campañas a mostrar por cuenta'),
+    description: 'Obtener campañas activas de todas las cuentas accesibles. Parámetro: limite_por_cuenta (default 10).',
+    inputSchema: {
+      limite_por_cuenta: z.number().int().default(10).describe('Máximo de campañas a mostrar por cuenta'),
+    },
   },
   async ({ limite_por_cuenta }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -240,14 +244,16 @@ server.tool(
 
 // ─── CONJUNTOS DE ANUNCIOS ────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'obtener_conjuntos',
-  'Obtener conjuntos de anuncios (Ad Sets) de una cuenta o campaña específica. Parámetros: account_input, campaign_id (opcional), limite (default 20), pagina_cursor.',
   {
-    account_input: z.string().describe('ID o nombre de la cuenta publicitaria'),
-    campaign_id: z.string().default('').describe('ID de campaña para filtrar (opcional)'),
-    limite: z.number().int().default(20),
-    pagina_cursor: z.string().default(''),
+    description: 'Obtener conjuntos de anuncios (Ad Sets) de una cuenta o campaña específica. Parámetros: account_input, campaign_id (opcional), limite (default 20), pagina_cursor.',
+    inputSchema: {
+      account_input: z.string().describe('ID o nombre de la cuenta publicitaria'),
+      campaign_id: z.string().default('').describe('ID de campaña para filtrar (opcional)'),
+      limite: z.number().int().default(20),
+      pagina_cursor: z.string().default(''),
+    },
   },
   async ({ account_input, campaign_id, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -273,9 +279,8 @@ server.tool(
         return { content: [{ type: 'text', text: `No se encontraron conjuntos de anuncios en ${origen}.` }] };
       const resultados = [`Conjuntos de anuncios en ${origen} (${conjuntos.length} mostrados):\n`];
       for (const cs of conjuntos) {
-        const presupuesto = presupuestoStr(cs.daily_budget, cs.lifetime_budget) === 'no definido'
-          ? 'heredado de campaña'
-          : presupuestoStr(cs.daily_budget, cs.lifetime_budget);
+        const raw = presupuestoStr(cs.daily_budget, cs.lifetime_budget);
+        const presupuesto = raw === 'no definido' ? 'heredado de campaña' : raw;
         const estado = traducirEstado(cs.effective_status ?? '');
         resultados.push(
           `- ${cs.name} (ID: ${cs.id})\n` +
@@ -294,15 +299,17 @@ server.tool(
 
 // ─── ANUNCIOS ─────────────────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'obtener_anuncios',
-  'Obtener anuncios (Ads) de una cuenta, campaña o conjunto específico. Parámetros: account_input, adset_id (opcional), campaign_id (opcional), limite (default 20), pagina_cursor.',
   {
-    account_input: z.string().describe('ID o nombre de la cuenta'),
-    adset_id: z.string().default('').describe('ID de conjunto de anuncios para filtrar (opcional)'),
-    campaign_id: z.string().default('').describe('ID de campaña para filtrar (opcional)'),
-    limite: z.number().int().default(20),
-    pagina_cursor: z.string().default(''),
+    description: 'Obtener anuncios (Ads) de una cuenta, campaña o conjunto específico. Parámetros: account_input, adset_id (opcional), campaign_id (opcional), limite (default 20), pagina_cursor.',
+    inputSchema: {
+      account_input: z.string().describe('ID o nombre de la cuenta'),
+      adset_id: z.string().default('').describe('ID de conjunto de anuncios para filtrar (opcional)'),
+      campaign_id: z.string().default('').describe('ID de campaña para filtrar (opcional)'),
+      limite: z.number().int().default(20),
+      pagina_cursor: z.string().default(''),
+    },
   },
   async ({ account_input, adset_id, campaign_id, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -349,11 +356,13 @@ server.tool(
 
 // ─── SEGMENTACIÓN ─────────────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'obtener_segmentacion_conjunto',
-  'Obtiene la segmentación completa (Targeting) de un Ad Set: geografía, demografía, intereses, comportamientos, exclusiones y públicos personalizados.',
   {
-    adset_id: z.string().describe('ID del conjunto de anuncios (Ad Set)'),
+    description: 'Obtiene la segmentación completa (Targeting) de un Ad Set: geografía, demografía, intereses, comportamientos, exclusiones y públicos personalizados.',
+    inputSchema: {
+      adset_id: z.string().describe('ID del conjunto de anuncios (Ad Set)'),
+    },
   },
   async ({ adset_id }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -486,12 +495,14 @@ server.tool(
 
 // ─── GESTIÓN DE ESTADOS ───────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'cambiar_estado_campana',
-  "Encender o apagar una campaña. Parámetros: campaign_id, accion ('encender' o 'apagar').",
   {
-    campaign_id: z.string().describe('ID de la campaña'),
-    accion: z.string().describe("'encender' o 'apagar'"),
+    description: "Encender o apagar una campaña. Parámetros: campaign_id, accion ('encender' o 'apagar').",
+    inputSchema: {
+      campaign_id: z.string().describe('ID de la campaña'),
+      accion: z.string().describe("'encender' o 'apagar'"),
+    },
   },
   async ({ campaign_id, accion }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -508,12 +519,14 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'cambiar_estado_conjunto',
-  "Encender o apagar un conjunto de anuncios (Ad Set). Parámetros: adset_id, accion ('encender' o 'apagar').",
   {
-    adset_id: z.string().describe('ID del conjunto de anuncios'),
-    accion: z.string().describe("'encender' o 'apagar'"),
+    description: "Encender o apagar un conjunto de anuncios (Ad Set). Parámetros: adset_id, accion ('encender' o 'apagar').",
+    inputSchema: {
+      adset_id: z.string().describe('ID del conjunto de anuncios'),
+      accion: z.string().describe("'encender' o 'apagar'"),
+    },
   },
   async ({ adset_id, accion }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -529,12 +542,14 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'cambiar_estado_anuncio',
-  "Encender o apagar un anuncio individual. Parámetros: ad_id, accion ('encender' o 'apagar').",
   {
-    ad_id: z.string().describe('ID del anuncio'),
-    accion: z.string().describe("'encender' o 'apagar'"),
+    description: "Encender o apagar un anuncio individual. Parámetros: ad_id, accion ('encender' o 'apagar').",
+    inputSchema: {
+      ad_id: z.string().describe('ID del anuncio'),
+      accion: z.string().describe("'encender' o 'apagar'"),
+    },
   },
   async ({ ad_id, accion }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -552,13 +567,15 @@ server.tool(
 
 // ─── PRESUPUESTOS ─────────────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'modificar_presupuesto_campana',
-  "Ajusta el presupuesto de una campaña. Parámetros: campaign_id, nuevo_presupuesto (monto en moneda local, ej: 1500.00), tipo_presupuesto ('diario' o 'total').",
   {
-    campaign_id: z.string(),
-    nuevo_presupuesto: z.number().describe('Monto en moneda local, ej: 1500.00'),
-    tipo_presupuesto: z.string().describe("'diario' o 'total'"),
+    description: "Ajusta el presupuesto de una campaña. Parámetros: campaign_id, nuevo_presupuesto (monto en moneda local, ej: 1500.00), tipo_presupuesto ('diario' o 'total').",
+    inputSchema: {
+      campaign_id: z.string(),
+      nuevo_presupuesto: z.number().describe('Monto en moneda local, ej: 1500.00'),
+      tipo_presupuesto: z.string().describe("'diario' o 'total'"),
+    },
   },
   async ({ campaign_id, nuevo_presupuesto, tipo_presupuesto }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -576,13 +593,15 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'modificar_presupuesto_conjunto',
-  "Ajusta el presupuesto de un Ad Set (útil en cuentas con ABO). Parámetros: adset_id, nuevo_presupuesto, tipo_presupuesto ('diario' o 'total').",
   {
-    adset_id: z.string(),
-    nuevo_presupuesto: z.number().describe('Monto en moneda local, ej: 500.00'),
-    tipo_presupuesto: z.string().describe("'diario' o 'total'"),
+    description: "Ajusta el presupuesto de un Ad Set (útil en cuentas con ABO). Parámetros: adset_id, nuevo_presupuesto, tipo_presupuesto ('diario' o 'total').",
+    inputSchema: {
+      adset_id: z.string(),
+      nuevo_presupuesto: z.number().describe('Monto en moneda local, ej: 500.00'),
+      tipo_presupuesto: z.string().describe("'diario' o 'total'"),
+    },
   },
   async ({ adset_id, nuevo_presupuesto, tipo_presupuesto }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -622,15 +641,17 @@ function formatInsightRow(i: any, indent = ''): string {
   );
 }
 
-server.tool(
+server.registerTool(
   'reporte_rendimiento',
-  'Obtener métricas clave (KPIs) por campaña para un rango de fechas. Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.',
   {
-    account_input: z.string().describe('ID o nombre de la cuenta publicitaria'),
-    fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-    fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
-    limite: z.number().int().default(25).describe('Campañas por página'),
-    pagina_cursor: z.string().default(''),
+    description: 'Obtener métricas clave (KPIs) por campaña para un rango de fechas. Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.',
+    inputSchema: {
+      account_input: z.string().describe('ID o nombre de la cuenta publicitaria'),
+      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+      limite: z.number().int().default(25).describe('Campañas por página'),
+      pagina_cursor: z.string().default(''),
+    },
   },
   async ({ account_input, fecha_inicio, fecha_fin, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -658,13 +679,15 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'reporte_rendimiento_todas',
-  'Obtener métricas clave (KPIs) de todas las cuentas accesibles para un rango de fechas.',
   {
-    fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-    fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
-    limite_por_cuenta: z.number().int().default(20),
+    description: 'Obtener métricas clave (KPIs) de todas las cuentas accesibles para un rango de fechas.',
+    inputSchema: {
+      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+      limite_por_cuenta: z.number().int().default(20),
+    },
   },
   async ({ fecha_inicio, fecha_fin, limite_por_cuenta }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -696,16 +719,18 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'reporte_rendimiento_desglosado',
-  "Desglosa resultados por segmento. Parámetros: account_input, fecha_inicio, fecha_fin, desglose ('age', 'gender' o 'publisher_platform'), limite (default 30), pagina_cursor.",
   {
-    account_input: z.string(),
-    fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-    fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
-    desglose: z.string().describe("'age', 'gender' o 'publisher_platform'"),
-    limite: z.number().int().default(30),
-    pagina_cursor: z.string().default(''),
+    description: "Desglosa resultados por segmento. Parámetros: account_input, fecha_inicio, fecha_fin, desglose ('age', 'gender' o 'publisher_platform'), limite (default 30), pagina_cursor.",
+    inputSchema: {
+      account_input: z.string(),
+      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+      desglose: z.string().describe("'age', 'gender' o 'publisher_platform'"),
+      limite: z.number().int().default(30),
+      pagina_cursor: z.string().default(''),
+    },
   },
   async ({ account_input, fecha_inicio, fecha_fin, desglose, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -751,13 +776,15 @@ server.tool(
 
 // ─── CREATIVOS ────────────────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'obtener_creativos_anuncio',
-  'Audita los textos y contenidos de los creativos de la cuenta. Parámetros: account_input, limite (default 15), pagina_cursor.',
   {
-    account_input: z.string(),
-    limite: z.number().int().default(15),
-    pagina_cursor: z.string().default(''),
+    description: 'Audita los textos y contenidos de los creativos de la cuenta. Parámetros: account_input, limite (default 15), pagina_cursor.',
+    inputSchema: {
+      account_input: z.string(),
+      limite: z.number().int().default(15),
+      pagina_cursor: z.string().default(''),
+    },
   },
   async ({ account_input, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -788,15 +815,17 @@ server.tool(
 
 // ─── MONITOREO ────────────────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'detectar_fugas_dinero',
-  'Analiza la cuenta en busca de campañas que gastan sin resultados: sin conversiones, CTR bajo, CPA elevado, sin entregas.',
   {
-    account_input: z.string(),
-    fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-    fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
-    limite: z.number().int().default(30),
-    pagina_cursor: z.string().default(''),
+    description: 'Analiza la cuenta en busca de campañas que gastan sin resultados: sin conversiones, CTR bajo, CPA elevado, sin entregas.',
+    inputSchema: {
+      account_input: z.string(),
+      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+      limite: z.number().int().default(30),
+      pagina_cursor: z.string().default(''),
+    },
   },
   async ({ account_input, fecha_inicio, fecha_fin, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -845,12 +874,14 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'monitorear_errores_cuenta',
-  'Revisa campañas, conjuntos y anuncios con errores, rechazos o problemas de entrega.',
   {
-    account_input: z.string(),
-    limite: z.number().int().default(50).describe('Máximo de objetos a revisar por tipo'),
+    description: 'Revisa campañas, conjuntos y anuncios con errores, rechazos o problemas de entrega.',
+    inputSchema: {
+      account_input: z.string(),
+      limite: z.number().int().default(50).describe('Máximo de objetos a revisar por tipo'),
+    },
   },
   async ({ account_input, limite }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };

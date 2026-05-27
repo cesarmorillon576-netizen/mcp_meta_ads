@@ -1,6 +1,5 @@
 import path from 'path';
 import * as dotenv from 'dotenv';
-import axios from 'axios';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -37,16 +36,20 @@ let tokenExpiry = 0;
 
 async function getAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
-  const resp = await axios.post('https://oauth2.googleapis.com/token', null, {
-    params: {
-      client_id: process.env.GOOGLE_ADS_CLIENT_ID,
-      client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET,
-      refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN,
-      grant_type: 'refresh_token',
-    },
+  const body = new URLSearchParams({
+    client_id: process.env.GOOGLE_ADS_CLIENT_ID!,
+    client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET!,
+    refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN!,
+    grant_type: 'refresh_token',
   });
-  cachedToken = resp.data.access_token as string;
-  tokenExpiry = Date.now() + ((resp.data.expires_in as number) - 60) * 1000;
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const data = await resp.json() as { access_token: string; expires_in: number };
+  cachedToken = data.access_token;
+  tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
   return cachedToken;
 }
 
@@ -64,12 +67,12 @@ async function gadsHeaders(): Promise<Record<string, string>> {
 
 async function search(customerId: string, query: string): Promise<any[]> {
   const headers = await gadsHeaders();
-  const resp = await axios.post(
+  const resp = await fetch(
     `${GADS_BASE}/customers/${customerId}/googleAds:search`,
-    { query, pageSize: 1000 },
-    { headers },
+    { method: 'POST', headers, body: JSON.stringify({ query, pageSize: 1000 }) },
   );
-  return resp.data.results ?? [];
+  const data = await resp.json() as any;
+  return data.results ?? [];
 }
 
 function microsToMoney(micros: string | number): string {
@@ -78,11 +81,13 @@ function microsToMoney(micros: string | number): string {
 
 // ─── CONSULTA DE CAMPAÑAS ─────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'obtener_campanas',
-  'Obtener todas las campañas de una cuenta de Google Ads con su estado y presupuesto.',
   {
-    customer_id: z.string().describe('ID de la cuenta de Google Ads (sin guiones)'),
+    description: 'Obtener todas las campañas de una cuenta de Google Ads con su estado y presupuesto.',
+    inputSchema: {
+      customer_id: z.string().describe('ID de la cuenta de Google Ads (sin guiones)'),
+    },
   },
   async ({ customer_id }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -107,11 +112,13 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'obtener_campanas_activas',
-  'Obtener solo las campañas ENABLED (activas) de una cuenta de Google Ads.',
   {
-    customer_id: z.string().describe('ID de la cuenta de Google Ads'),
+    description: 'Obtener solo las campañas ENABLED (activas) de una cuenta de Google Ads.',
+    inputSchema: {
+      customer_id: z.string().describe('ID de la cuenta de Google Ads'),
+    },
   },
   async ({ customer_id }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -139,16 +146,16 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'obtener_todas_campanas_activas',
-  'Obtener campañas activas de todas las cuentas accesibles con las credenciales configuradas.',
-  {},
+  { description: 'Obtener campañas activas de todas las cuentas accesibles con las credenciales configuradas.' },
   async () => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
       const headers = await gadsHeaders();
-      const listResp = await axios.get(`${GADS_BASE}/customers:listAccessibleCustomers`, { headers });
-      const resourceNames: string[] = listResp.data.resourceNames ?? [];
+      const listResp = await fetch(`${GADS_BASE}/customers:listAccessibleCustomers`, { headers });
+      const listData = await listResp.json() as any;
+      const resourceNames: string[] = listData.resourceNames ?? [];
       const resultados: string[] = [];
       for (const rn of resourceNames) {
         const customerId = rn.split('/').pop()!;
@@ -191,25 +198,27 @@ async function mutateResource(
   status: string,
 ): Promise<void> {
   const headers = await gadsHeaders();
-  await axios.post(
+  await fetch(
     `${GADS_BASE}/customers/${customerId}/${endpoint}:mutate`,
     {
-      operations: [{
-        updateMask: 'status',
-        update: { resourceName, status },
-      }],
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        operations: [{ updateMask: 'status', update: { resourceName, status } }],
+      }),
     },
-    { headers },
   );
 }
 
-server.tool(
+server.registerTool(
   'cambiar_estado_campana',
-  "Encender o apagar una campaña de Google Ads. Parámetros: customer_id, campaign_id, accion ('encender' o 'apagar').",
   {
-    customer_id: z.string().describe('ID de la cuenta (sin guiones)'),
-    campaign_id: z.string().describe('ID de la campaña'),
-    accion: z.string().describe("'encender' o 'apagar'"),
+    description: "Encender o apagar una campaña de Google Ads. Parámetros: customer_id, campaign_id, accion ('encender' o 'apagar').",
+    inputSchema: {
+      customer_id: z.string().describe('ID de la cuenta (sin guiones)'),
+      campaign_id: z.string().describe('ID de la campaña'),
+      accion: z.string().describe("'encender' o 'apagar'"),
+    },
   },
   async ({ customer_id, campaign_id, accion }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -217,8 +226,7 @@ server.tool(
     if (acc !== 'encender' && acc !== 'apagar')
       return { content: [{ type: 'text', text: "Error: 'accion' debe ser 'encender' o 'apagar'" }] };
     try {
-      const status = acc === 'encender' ? 'ENABLED' : 'PAUSED';
-      await mutateResource('campaigns', customer_id, `customers/${customer_id}/campaigns/${campaign_id}`, status);
+      await mutateResource('campaigns', customer_id, `customers/${customer_id}/campaigns/${campaign_id}`, acc === 'encender' ? 'ENABLED' : 'PAUSED');
       return { content: [{ type: 'text', text: `Campaña ${campaign_id} ${acc === 'encender' ? 'activada' : 'pausada'} correctamente.` }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `Error al cambiar estado: ${e.message}` }] };
@@ -226,13 +234,15 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'cambiar_estado_grupo',
-  "Encender o apagar un grupo de anuncios (Ad Group). Parámetros: customer_id, ad_group_id, accion ('encender' o 'apagar').",
   {
-    customer_id: z.string(),
-    ad_group_id: z.string().describe('ID del grupo de anuncios'),
-    accion: z.string().describe("'encender' o 'apagar'"),
+    description: "Encender o apagar un grupo de anuncios (Ad Group). Parámetros: customer_id, ad_group_id, accion ('encender' o 'apagar').",
+    inputSchema: {
+      customer_id: z.string(),
+      ad_group_id: z.string().describe('ID del grupo de anuncios'),
+      accion: z.string().describe("'encender' o 'apagar'"),
+    },
   },
   async ({ customer_id, ad_group_id, accion }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -240,8 +250,7 @@ server.tool(
     if (acc !== 'encender' && acc !== 'apagar')
       return { content: [{ type: 'text', text: "Error: 'accion' debe ser 'encender' o 'apagar'" }] };
     try {
-      const status = acc === 'encender' ? 'ENABLED' : 'PAUSED';
-      await mutateResource('adGroups', customer_id, `customers/${customer_id}/adGroups/${ad_group_id}`, status);
+      await mutateResource('adGroups', customer_id, `customers/${customer_id}/adGroups/${ad_group_id}`, acc === 'encender' ? 'ENABLED' : 'PAUSED');
       return { content: [{ type: 'text', text: `Grupo ${ad_group_id} ${acc === 'encender' ? 'activado' : 'pausado'} correctamente.` }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `Error al cambiar estado del grupo: ${e.message}` }] };
@@ -249,14 +258,16 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'cambiar_estado_anuncio',
-  "Encender o apagar un anuncio individual. Parámetros: customer_id, ad_group_id, ad_id, accion ('encender' o 'apagar').",
   {
-    customer_id: z.string(),
-    ad_group_id: z.string(),
-    ad_id: z.string().describe('ID del anuncio'),
-    accion: z.string().describe("'encender' o 'apagar'"),
+    description: "Encender o apagar un anuncio individual. Parámetros: customer_id, ad_group_id, ad_id, accion ('encender' o 'apagar').",
+    inputSchema: {
+      customer_id: z.string(),
+      ad_group_id: z.string(),
+      ad_id: z.string().describe('ID del anuncio'),
+      accion: z.string().describe("'encender' o 'apagar'"),
+    },
   },
   async ({ customer_id, ad_group_id, ad_id, accion }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -264,14 +275,8 @@ server.tool(
     if (acc !== 'encender' && acc !== 'apagar')
       return { content: [{ type: 'text', text: "Error: 'accion' debe ser 'encender' o 'apagar'" }] };
     try {
-      const status = acc === 'encender' ? 'ENABLED' : 'PAUSED';
-      // AdGroupAd resource name uses ~ separator: adGroups/{adGroupId}~{adId}
-      await mutateResource(
-        'adGroupAds',
-        customer_id,
-        `customers/${customer_id}/adGroupAds/${ad_group_id}~${ad_id}`,
-        status,
-      );
+      // AdGroupAd resource name: customers/{customerId}/adGroupAds/{adGroupId}~{adId}
+      await mutateResource('adGroupAds', customer_id, `customers/${customer_id}/adGroupAds/${ad_group_id}~${ad_id}`, acc === 'encender' ? 'ENABLED' : 'PAUSED');
       return { content: [{ type: 'text', text: `Anuncio ${ad_id} ${acc === 'encender' ? 'activado' : 'pausado'} correctamente.` }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `Error al cambiar estado del anuncio: ${e.message}` }] };
@@ -281,13 +286,15 @@ server.tool(
 
 // ─── REPORTES DE RENDIMIENTO ──────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'reporte_rendimiento',
-  'Obtener métricas clave por campaña para un rango de fechas. Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.',
   {
-    customer_id: z.string(),
-    fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-    fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+    description: 'Obtener métricas clave por campaña para un rango de fechas. Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.',
+    inputSchema: {
+      customer_id: z.string(),
+      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+    },
   },
   async ({ customer_id, fecha_inicio, fecha_fin }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -333,13 +340,15 @@ server.tool(
 
 // ─── MONITOREO ────────────────────────────────────────────────────────────────
 
-server.tool(
+server.registerTool(
   'detectar_fugas_dinero',
-  'Detecta campañas que gastan sin generar resultados: sin conversiones, CTR bajo, CPA elevado.',
   {
-    customer_id: z.string(),
-    fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-    fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+    description: 'Detecta campañas que gastan sin generar resultados: sin conversiones, CTR bajo, CPA elevado.',
+    inputSchema: {
+      customer_id: z.string(),
+      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+    },
   },
   async ({ customer_id, fecha_inicio, fecha_fin }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
@@ -381,11 +390,13 @@ server.tool(
   },
 );
 
-server.tool(
+server.registerTool(
   'monitorear_errores_cuenta',
-  'Revisa campañas, grupos y anuncios con errores, desaprobaciones o problemas de entrega.',
   {
-    customer_id: z.string().describe('ID de la cuenta de Google Ads'),
+    description: 'Revisa campañas, grupos y anuncios con errores, desaprobaciones o problemas de entrega.',
+    inputSchema: {
+      customer_id: z.string().describe('ID de la cuenta de Google Ads'),
+    },
   },
   async ({ customer_id }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
