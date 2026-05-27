@@ -1,20 +1,26 @@
 ================================================
   Meta & Google Ads Manager para Claude Desktop
+         Version 2.0  —  Node.js / TypeScript
 ================================================
 
 REQUISITOS
 ----------
 - Claude Desktop instalado (https://claude.ai/download)
 - Tokens de acceso de Meta Ads y/o Google Ads
+- NO se requiere instalar Node.js ni ningun otro programa
 
 INSTALACION (3 pasos)
 ---------------------
 
 1. EJECUTAR EL CONFIGURADOR
    - Doble click sobre "setup.bat"
-   - Si Windows muestra aviso de seguridad (SmartScreen), click en
-     "Mas informacion" y luego "Ejecutar de todas formas"
-   - El script configura Claude Desktop automaticamente
+   - Si Windows muestra aviso de seguridad (SmartScreen), haz click
+     en "Mas informacion" y luego "Ejecutar de todas formas"
+   - El script detecta tu instalacion de Claude Desktop, muestra
+     los servidores ya configurados y te da a elegir:
+       [S] Sobreescribir  — reemplaza MetaAds y GoogleAds existentes
+       [A] Agregar faltantes — solo instala los que no estan
+       [N] Cancelar
 
 2. COMPLETAR LAS CREDENCIALES
    El script abrira el archivo ".env" en Notepad.
@@ -23,35 +29,66 @@ INSTALACION (3 pasos)
    META ADS:
      META_ACCESS_TOKEN=<tu token permanente de Meta Business>
 
-   GOOGLE ADS (todos los campos son obligatorios):
+     Como obtenerlo:
+     - Ve a developers.facebook.com -> Mis Apps
+     - Crea una App Business con permisos de Marketing API
+     - Genera un Long-Lived Token en el Explorador de API
+     - Activa permisos: ads_read, ads_management, business_management
+
+   GOOGLE ADS (todos los campos son obligatorios si usas Google Ads):
      GOOGLE_ADS_DEVELOPER_TOKEN=<developer token>
      GOOGLE_ADS_CLIENT_ID=<OAuth2 client id>
      GOOGLE_ADS_CLIENT_SECRET=<OAuth2 client secret>
      GOOGLE_ADS_REFRESH_TOKEN=<refresh token>
-     GOOGLE_ADS_LOGIN_CUSTOMER_ID=<ID cuenta manager, si aplica>
+     GOOGLE_ADS_LOGIN_CUSTOMER_ID=<ID cuenta manager MCC, sin guiones>
 
-   Guarda el archivo .env cuando termines (Ctrl+S).
+     Como obtenerlos:
+     - Developer Token: ads.google.com/aw/apicenter
+     - Client ID y Secret: console.cloud.google.com/apis/credentials
+     - Refresh Token: developers.google.com/oauthplayground
+       (scope: https://www.googleapis.com/auth/adwords)
+     - Login Customer ID: ID de tu cuenta MCC (si manejas varias cuentas)
+       Dejalo vacio si solo tienes una cuenta directa.
+
+   Guarda el archivo .env cuando termines (Ctrl+S en Notepad).
 
 3. REINICIAR CLAUDE DESKTOP
    Cierra y vuelve a abrir Claude Desktop.
-   Los servidores de Meta Ads y Google Ads apareceran disponibles.
+   Los servidores MetaAds y GoogleAds apareceran disponibles.
 
 COMO USARLO
 -----------
-Una vez configurado, simplemente escribe en Claude lo que necesitas:
+Una vez configurado, escribe directamente en Claude lo que necesitas:
 
   "Lista todas mis cuentas publicitarias de Meta"
-  "Muéstrame las campañas activas esta semana"
-  "Cuanto gastamos en Google Ads en mayo?"
-  "Hay campanas tirando dinero sin resultados?"
+  "Mostrame las campanas activas de Google Ads esta semana"
+  "Cuanto gastamos en la cuenta X durante mayo?"
+  "Hay campanas tirando dinero sin conversiones?"
   "Apaga la campana ID 12345678"
+  "Que anuncios tienen errores o rechazos?"
 
-SOPORTE
--------
-Si algo no funciona, verifica que:
-- El archivo .env tiene los tokens correctos (sin espacios extra)
-- Claude Desktop esta completamente cerrado y vuelto a abrir
-- Los archivos meta_ads.exe y google_ads.exe estan en la misma
-  carpeta que el archivo .env
+DESINSTALAR
+-----------
+Ejecuta "uninstall.bat" para eliminar MetaAds y GoogleAds de la
+configuracion de Claude Desktop. El resto de tus MCPs no se toca.
+
+SOLUCION DE PROBLEMAS
+---------------------
+Si algo no funciona:
+
+  1. Verifica que el archivo .env tiene los tokens correctos
+     (sin espacios extra, sin comillas alrededor del valor)
+
+  2. Asegurate de que meta_ads.exe y google_ads.exe estan en la
+     misma carpeta que el archivo .env
+
+  3. Cierra Claude Desktop completamente (barra de tareas) y
+     vuelve a abrirlo
+
+  4. Si ves "Server disconnected", revisa que el .env tiene
+     los valores correctos para esa plataforma
+
+  5. Si Windows Defender bloquea los .exe, agrega la carpeta
+     como exclusion en Seguridad de Windows -> Exclusiones
 
 ================================================

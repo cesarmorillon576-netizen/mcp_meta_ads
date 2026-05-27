@@ -132,10 +132,14 @@ if (Test-Path $claudeConfigPath) {
     Write-OK "Se creara un nuevo archivo de configuracion"
 }
 
-# Asegurar que mcpServers exista y sea una estructura mutable (HashTable)
-if (-not $config.PSObject.Properties['mcpServers'] -or $null -eq $config.mcpServers) {
-    $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue @{} -Force
+# Normalizar mcpServers a HashTable mutable (ConvertFrom-Json devuelve PSCustomObject inmutable)
+$ht = @{}
+if ($config.PSObject.Properties['mcpServers'] -and $null -ne $config.mcpServers) {
+    foreach ($prop in $config.mcpServers.PSObject.Properties) {
+        $ht[$prop.Name] = $prop.Value
+    }
 }
+$config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue $ht -Force
 
 # --- 6b. Mostrar MCPs actuales y detectar si ya estan instalados --------------
 $servidoresActuales = @($config.mcpServers.PSObject.Properties | ForEach-Object { $_.Name })
@@ -160,6 +164,10 @@ Write-Host ""
 $tieneMeta   = $servidoresActuales -contains 'MetaAds'
 $tieneGoogle = $servidoresActuales -contains 'GoogleAds'
 
+# Flags que indican qué instalar (pueden cambiar según elección del usuario)
+$instalarMeta   = $true
+$instalarGoogle = $true
+
 if ($tieneMeta -or $tieneGoogle) {
     $cuales   = @(if ($tieneMeta) { "MetaAds" }; if ($tieneGoogle) { "GoogleAds" })
     $listaStr = $cuales -join " y "
@@ -167,11 +175,28 @@ if ($tieneMeta -or $tieneGoogle) {
 
     Write-Warn "$listaStr ya $verbo."
     Write-Host ""
-    Write-Host "    [S] Sobreescribir - actualiza la ruta del .exe al directorio actual" -ForegroundColor Gray
+    Write-Host "    [S] Sobreescribir - reemplaza MetaAds y GoogleAds con la ruta actual" -ForegroundColor Gray
+    Write-Host "    [A] Agregar faltantes - solo instala los que aun no estan" -ForegroundColor Gray
     Write-Host "    [N] Cancelar - salir sin modificar nada" -ForegroundColor Gray
     Write-Host ""
-    $respOver = Read-Host "  Que deseas hacer? (s/n)"
-    if ($respOver -notmatch '^[sS]$') {
+    $respOver = Read-Host "  Que deseas hacer? (s/a/n)"
+
+    if ($respOver -match '^[aA]$') {
+        $instalarMeta   = -not $tieneMeta
+        $instalarGoogle = -not $tieneGoogle
+
+        $faltantes = @(if ($instalarMeta) { "MetaAds" }; if ($instalarGoogle) { "GoogleAds" })
+        if ($faltantes.Count -eq 0) {
+            Write-Host ""
+            Write-Info "Ambos servidores ya estan instalados. No hay nada que agregar."
+            Write-Host ""
+            Read-Host "  Presiona Enter para salir"
+            exit 0
+        }
+        Write-Host ""
+        Write-Info "Se instalaran solo: $($faltantes -join ', ')"
+        Write-Host ""
+    } elseif ($respOver -notmatch '^[sS]$') {
         Write-Host ""
         Write-Info "Instalacion cancelada. Tu configuracion no fue modificada."
         Write-Host ""
@@ -183,16 +208,12 @@ if ($tieneMeta -or $tieneGoogle) {
 
 # --- 7. Inyectar servidores MCP -----------------------------------------------
 try {
-    $metaConfig   = [PSCustomObject]@{ command = $metaExe;   args = @() }
-    $googleConfig = [PSCustomObject]@{ command = $googleExe; args = @() }
+    # [string[]]@() garantiza serialización como [] en vez de null (bug de PowerShell 5.x con @() vacío)
+    $metaConfig   = [PSCustomObject]@{ command = $metaExe;   args = [string[]]@() }
+    $googleConfig = [PSCustomObject]@{ command = $googleExe; args = [string[]]@() }
 
-    if ($config.mcpServers -is [System.Collections.IDictionary]) {
-        $config.mcpServers["MetaAds"]   = $metaConfig
-        $config.mcpServers["GoogleAds"] = $googleConfig
-    } else {
-        $config.mcpServers.MetaAds   = $metaConfig
-        $config.mcpServers.GoogleAds = $googleConfig
-    }
+    if ($instalarMeta)   { $config.mcpServers["MetaAds"]   = $metaConfig }
+    if ($instalarGoogle) { $config.mcpServers["GoogleAds"] = $googleConfig }
     Write-OK "Servidores MCP preparados"
 } catch {
     Exit-Error "No se pudieron estructurar los servidores MCP: $_"

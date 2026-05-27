@@ -12,7 +12,7 @@ const baseDir = isFrozen
 dotenv.config({ path: path.join(baseDir, '.env') });
 
 const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? '';
-const API_BASE = 'https://graph.facebook.com/v21.0';
+const API_BASE = 'https://graph.facebook.com/v25.0';
 
 const server = new McpServer({ name: 'MetaAds', version: '2.0.0' });
 

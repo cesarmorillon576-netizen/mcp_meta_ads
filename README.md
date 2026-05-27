@@ -130,7 +130,7 @@ mcp-ads-manager/
 │   │   └── server.ts        # Servidor Meta Ads (18 herramientas)
 │   └── google_ads/
 │       └── server.ts        # Servidor Google Ads (9 herramientas)
-├── dist/                    # Salida compilada (generada por tsc)
+├── dist/                    # Salida compilada (generada por esbuild)
 ├── windows_build/
 │   ├── setup.bat            # Instalador Windows (lanzador)
 │   ├── setup.ps1            # Instalador Windows (lógica principal)
@@ -166,7 +166,7 @@ Los ejecutables se generan en `dist/meta_ads.exe` y `dist/google_ads.exe`.
 
 ## CI/CD — Build automático de Windows
 
-El workflow `.github/workflows/build-windows.yml` se activa al hacer push a la rama `build/windows-exe` o manualmente desde GitHub Actions → **Run workflow**.
+El workflow `.github/workflows/build-windows.yml` se activa al hacer push a la rama `typescript` o manualmente desde GitHub Actions → **Run workflow**.
 
 Pasos automáticos:
 1. Instala Node.js 20 y dependencias (`npm ci`)
@@ -180,6 +180,6 @@ Pasos automáticos:
 
 - **Runtime:** Node.js 20 + TypeScript 5
 - **MCP Framework:** `@modelcontextprotocol/sdk`
-- **HTTP:** `axios` (Meta Graph API v21.0, Google Ads REST API v18)
+- **HTTP:** `fetch` nativo de Node.js 20 (Meta Graph API v25.0, Google Ads REST API v18)
 - **Validación:** `zod`
 - **Empaquetado Windows:** `@yao-pkg/pkg`
