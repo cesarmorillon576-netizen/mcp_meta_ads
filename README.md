@@ -107,15 +107,44 @@ Luego abre Claude Code desde esa misma terminal o carpeta y los servidores `meta
 
 | Herramienta | Parámetros | Descripción |
 |---|---|---|
-| `obtener_campanas` | `account_id` | Lista todas las campañas con estado y presupuesto |
-| `obtener_campanas_activas` | `account_id` | Solo campañas activas de una cuenta |
-| `obtener_todas_campanas_activas` | — | Campañas activas de todas las cuentas del token |
+| `listar_cuentas_publicitarias` | — | Lista todas las cuentas del token con nombre e ID |
+| `obtener_campanas` | `account_input`, `limite`*, `pagina_cursor`* | Lista campañas con estado y presupuesto |
+| `obtener_campanas_activas` | `account_input`, `limite`*, `pagina_cursor`* | Solo campañas activas de una cuenta |
+| `obtener_todas_campanas_activas` | `limite_por_cuenta`* | Campañas activas de todas las cuentas del token |
 | `cambiar_estado_campana` | `campaign_id`, `accion` | Encender o apagar una campaña |
 | `cambiar_estado_conjunto` | `adset_id`, `accion` | Encender o apagar un conjunto de anuncios |
 | `cambiar_estado_anuncio` | `ad_id`, `accion` | Encender o apagar un anuncio |
-| `reporte_rendimiento` | `account_id`, `fecha_inicio`, `fecha_fin` | KPIs: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS |
-| `detectar_fugas_dinero` | `account_id`, `fecha_inicio`, `fecha_fin` | Detecta gasto sin conversiones, CTR bajo o CPA excesivo |
-| `monitorear_errores_cuenta` | `account_id` | Busca anuncios rechazados o con problemas de entrega |
+| `modificar_presupuesto_campana` | `campaign_id`, `nuevo_presupuesto`, `tipo_presupuesto` | Ajusta el presupuesto diario o total de una campaña |
+| `reporte_rendimiento` | `account_input`, `fecha_inicio`, `fecha_fin`, `limite`*, `pagina_cursor`* | KPIs: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS |
+| `reporte_rendimiento_todas` | `fecha_inicio`, `fecha_fin`, `limite_por_cuenta`* | KPIs de todas las cuentas accesibles |
+| `reporte_rendimiento_desglosado` | `account_input`, `fecha_inicio`, `fecha_fin`, `desglose`, `limite`*, `pagina_cursor`* | Rendimiento segmentado por edad, género o plataforma |
+| `obtener_creativos_anuncio` | `account_input`, `limite`*, `pagina_cursor`* | Audita textos y títulos de los creativos |
+| `detectar_fugas_dinero` | `account_input`, `fecha_inicio`, `fecha_fin`, `limite`*, `pagina_cursor`* | Detecta gasto sin conversiones, CTR bajo o CPA excesivo |
+| `monitorear_errores_cuenta` | `account_input`, `limite`* | Busca anuncios rechazados o con problemas de entrega |
+
+> `accion` acepta: `"encender"` o `"apagar"`
+> `tipo_presupuesto` acepta: `"diario"` o `"total"`
+> `desglose` acepta: `"age"`, `"gender"` o `"publisher_platform"`
+> Los parámetros marcados con `*` son opcionales.
+
+#### Paginación
+
+Las herramientas de consulta traen un número limitado de resultados por llamada para evitar respuestas lentas. Cuando hay más datos disponibles, la respuesta incluye al final:
+
+```
+📄 Siguiente página → pagina_cursor='AbCdEf...'
+```
+
+Pasa ese valor en el parámetro `pagina_cursor` de la siguiente llamada para obtener la siguiente página. Los valores por defecto son:
+
+| Parámetro | Default |
+|---|---|
+| `limite` en campañas | 20 |
+| `limite` en insights/reportes | 25 |
+| `limite` en desglosado | 30 |
+| `limite` en creativos | 15 |
+| `limite` en errores | 50 |
+| `limite_por_cuenta` (todas las cuentas) | 10–20 |
 
 ### Google Ads (`google-ads`)
 
