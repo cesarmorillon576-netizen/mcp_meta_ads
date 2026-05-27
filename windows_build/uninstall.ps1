@@ -43,15 +43,28 @@ Write-Host ""
 $claudeConfigDir  = $null
 $claudeConfigPath = $null
 
-$pathWeb   = Join-Path $env:APPDATA   "Claude"
-$pathStore = Join-Path $env:LOCALAPPDATA "Packages\Claude_pzs8sxrjxfjjc\LocalState"
-
+# Opcion A: Instalacion estandar desde la Web (%APPDATA%\Claude)
+$pathWeb = Join-Path $env:APPDATA "Claude"
 if (Test-Path $pathWeb) {
     $claudeConfigDir  = $pathWeb
     $claudeConfigPath = Join-Path $claudeConfigDir "claude_desktop_config.json"
-} elseif (Test-Path $pathStore) {
-    $claudeConfigDir  = $pathStore
-    $claudeConfigPath = Join-Path $claudeConfigDir "claude_desktop_config.json"
+}
+
+# Opcion B: Instalacion desde la Microsoft Store
+# Se busca con wildcard "Claude_*" para no depender del hash exacto del publicador.
+if ($null -eq $claudeConfigDir) {
+    $packagesDir = Join-Path $env:LOCALAPPDATA "Packages"
+    if (Test-Path $packagesDir) {
+        $claudePkg = Get-ChildItem $packagesDir -Directory -Filter "Claude_*" `
+                     -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($claudePkg) {
+            $localState = Join-Path $claudePkg.FullName "LocalState"
+            if (Test-Path $localState) {
+                $claudeConfigDir  = $localState
+                $claudeConfigPath = Join-Path $claudeConfigDir "claude_desktop_config.json"
+            }
+        }
+    }
 }
 
 if ($null -eq $claudeConfigDir) {

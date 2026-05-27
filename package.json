@@ -8,8 +8,8 @@
     "typecheck": "tsc --noEmit",
     "start:meta": "node dist/meta_ads/server.js",
     "start:google": "node dist/google_ads/server.js",
-    "package:meta": "pkg dist/meta_ads/server.js --target node20-win-x64 --output dist/meta_ads.exe --compress GZip",
-    "package:google": "pkg dist/google_ads/server.js --target node20-win-x64 --output dist/google_ads.exe --compress GZip",
+    "package:meta": "pkg dist/meta_ads/server.js --target node20-win-x64 --output dist/meta_ads.exe",
+    "package:google": "pkg dist/google_ads/server.js --target node20-win-x64 --output dist/google_ads.exe",
     "package:all": "npm run package:meta && npm run package:google"
   },
   "dependencies": {

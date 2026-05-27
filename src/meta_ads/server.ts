@@ -11,15 +11,18 @@ const baseDir = isFrozen
   : path.resolve(__dirname, '..', '..');
 dotenv.config({ path: path.join(baseDir, '.env') });
 
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? '';
 const API_BASE = 'https://graph.facebook.com/v25.0';
 
 const server = new McpServer({ name: 'MetaAds', version: '2.0.0' });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function getToken(): string {
+  return process.env.META_ACCESS_TOKEN ?? '';
+}
+
 function credencialesOk(): boolean {
-  return ACCESS_TOKEN.length > 0;
+  return getToken().length > 0;
 }
 
 function errorCredenciales(): string {
@@ -27,14 +30,14 @@ function errorCredenciales(): string {
 }
 
 async function metaGet(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
-  const qs = new URLSearchParams({ access_token: ACCESS_TOKEN });
+  const qs = new URLSearchParams({ access_token: getToken() });
   for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
   const resp = await fetch(`${API_BASE}${endpoint}?${qs}`);
   return resp.json();
 }
 
 async function metaPost(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
-  const qs = new URLSearchParams({ access_token: ACCESS_TOKEN });
+  const qs = new URLSearchParams({ access_token: getToken() });
   for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
   const resp = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', body: qs });
   return resp.json();
