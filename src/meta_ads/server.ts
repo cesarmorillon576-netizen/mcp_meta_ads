@@ -5,6 +5,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const bizSdk = require('facebook-nodejs-business-sdk');
+const { FacebookAdsApi, AdAccount: FBAdAccount, Campaign, AdSet, Ad, User } = bizSdk;
+
 // Find .env: next to the running script (production/windows_build) or project root (dev)
 function findEnvPath(): string {
   if ((process as any).pkg !== undefined) {
@@ -26,8 +30,6 @@ function findEnvPath(): string {
 }
 dotenv.config({ path: findEnvPath() });
 
-const API_BASE = 'https://graph.facebook.com/v25.0';
-
 const server = new McpServer({ name: 'MetaAds', version: '2.0.0' });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -44,18 +46,21 @@ function errorCredenciales(): string {
   return '❌ Error: No se encontraron las credenciales de Meta Ads en el archivo de configuración (.env).';
 }
 
-async function metaGet(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
-  const qs = new URLSearchParams({ access_token: getToken() });
-  for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
-  const resp = await fetch(`${API_BASE}${endpoint}?${qs}`);
-  return resp.json();
+function initApi(): void {
+  FacebookAdsApi.init(getToken());
 }
 
-async function metaPost(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
-  const qs = new URLSearchParams({ access_token: getToken() });
-  for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
-  const resp = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', body: qs });
-  return resp.json();
+function cursorToArray(cursor: any): any[] {
+  const arr: any[] = [];
+  cursor.forEach((item: any) => arr.push(item));
+  return arr;
+}
+
+function nextCursor(cursor: any): string | null {
+  const paging = cursor?.paging;
+  // paging.next is a URL string only when there's a real next page (after load it becomes undefined on last page)
+  if (!paging?.next || typeof paging.next !== 'string') return null;
+  return paging.cursors?.after ?? null;
 }
 
 function traducirEstado(status: string): string {
@@ -81,10 +86,11 @@ async function resolveAccount(accountInput: string): Promise<string> {
   if (/^\d+$/.test(input)) return `act_${input}`;
   if (input.toLowerCase().startsWith('act_')) return input;
   try {
-    const data = await metaGet('/me/adaccounts', { fields: 'id,name', limit: 200 });
-    const accounts = (data.data ?? []) as Array<{ id: string; name: string }>;
-    const match = accounts.find((a) =>
-      a.name.toLowerCase().includes(input.toLowerCase()),
+    initApi();
+    const cursor = await new User('me').getAdAccounts(['id', 'name'], { limit: 200 });
+    const accounts = cursorToArray(cursor);
+    const match = accounts.find((a: any) =>
+      (a.name ?? '').toLowerCase().includes(input.toLowerCase()),
     );
     if (match) return match.id;
   } catch {}
@@ -97,10 +103,6 @@ function presupuestoStr(daily?: string, lifetime?: string): string {
   return 'no definido';
 }
 
-function nextCursor(data: any): string | null {
-  return data?.paging?.cursors?.after ?? (data?.paging?.next ? (data.paging.cursors?.after ?? null) : null);
-}
-
 // ─── UTILIDADES DE CONTEXTO ───────────────────────────────────────────────────
 
 server.registerTool(
@@ -109,8 +111,9 @@ server.registerTool(
   async () => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
-      const data = await metaGet('/me/adaccounts', { fields: 'id,name' });
-      const cuentas = data.data as Array<{ id: string; name?: string }>;
+      initApi();
+      const cursor = await new User('me').getAdAccounts(['id', 'name'], { limit: 200 });
+      const cuentas = cursorToArray(cursor);
       if (!cuentas?.length)
         return { content: [{ type: 'text', text: 'No se encontraron cuentas publicitarias vinculadas a este perfil.' }] };
       const lineas = ['Cuentas Publicitarias Disponibles:\n'];
@@ -139,13 +142,14 @@ server.registerTool(
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
       const accountId = await resolveAccount(account_input);
-      const params: Record<string, unknown> = {
-        fields: 'id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,objective',
-        limit: limite,
-      };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      const data = await metaGet(`/${accountId}/campaigns`, params);
-      const campanas = data.data as any[];
+      initApi();
+      const sdkParams: Record<string, any> = { limit: limite };
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      const cursor = await new FBAdAccount(accountId).getCampaigns(
+        ['id', 'name', 'status', 'effective_status', 'daily_budget', 'lifetime_budget', 'start_time', 'stop_time', 'objective'],
+        sdkParams,
+      );
+      const campanas = cursorToArray(cursor);
       if (!campanas?.length)
         return { content: [{ type: 'text', text: `No se encontraron campañas para la cuenta '${account_input}'.` }] };
       const resultados = [`Campañas en '${account_input}' (${campanas.length} mostradas):\n`];
@@ -159,7 +163,7 @@ server.registerTool(
           `  Inicio: ${c.start_time ?? 'N/A'} | Fin: ${c.stop_time ?? 'sin fecha fin'}`,
         );
       }
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       if (nc) resultados.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
       return { content: [{ type: 'text', text: resultados.join('\n\n') }] };
     } catch (e: any) {
@@ -182,14 +186,17 @@ server.registerTool(
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
       const accountId = await resolveAccount(account_input);
-      const params: Record<string, unknown> = {
-        fields: 'id,name,status,daily_budget,objective',
+      initApi();
+      const sdkParams: Record<string, any> = {
         effective_status: JSON.stringify(['ACTIVE']),
         limit: limite,
       };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      const data = await metaGet(`/${accountId}/campaigns`, params);
-      const campanas = data.data as any[];
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      const cursor = await new FBAdAccount(accountId).getCampaigns(
+        ['id', 'name', 'status', 'daily_budget', 'objective'],
+        sdkParams,
+      );
+      const campanas = cursorToArray(cursor);
       if (!campanas?.length)
         return { content: [{ type: 'text', text: `No hay campañas activas en la cuenta '${account_input}'.` }] };
       const resultados = [`Campañas activas (${campanas.length} mostradas):\n`];
@@ -199,7 +206,7 @@ server.registerTool(
           : 'presupuesto variable';
         resultados.push(`- ${c.name} (ID: ${c.id}) | Objetivo: ${c.objective ?? 'N/A'} | Inversión: ${pStr}`);
       }
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       if (nc) resultados.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
       return { content: [{ type: 'text', text: resultados.join('\n') }] };
     } catch (e: any) {
@@ -219,22 +226,22 @@ server.registerTool(
   async ({ limite_por_cuenta }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
-      const cuentasData = await metaGet('/me/adaccounts', { fields: 'id,name' });
-      const cuentas = cuentasData.data as Array<{ id: string; name?: string }>;
+      initApi();
+      const cuentasCursor = await new User('me').getAdAccounts(['id', 'name'], { limit: 200 });
+      const cuentas = cursorToArray(cuentasCursor);
       if (!cuentas?.length)
         return { content: [{ type: 'text', text: 'No se encontraron cuentas publicitarias asociadas al token.' }] };
       const resultados: string[] = [];
       let total = 0;
       for (const cuenta of cuentas) {
         try {
-          const data = await metaGet(`/${cuenta.id}/campaigns`, {
-            fields: 'id,name,daily_budget,objective',
-            effective_status: JSON.stringify(['ACTIVE']),
-            limit: limite_por_cuenta,
-          });
-          const campanas = data.data as any[];
+          const campCursor = await new FBAdAccount(cuenta.id).getCampaigns(
+            ['id', 'name', 'daily_budget', 'objective'],
+            { effective_status: JSON.stringify(['ACTIVE']), limit: limite_por_cuenta },
+          );
+          const campanas = cursorToArray(campCursor);
           if (campanas?.length) {
-            const hayMas = nextCursor(data) ? ' (y más...)' : '';
+            const hayMas = nextCursor(campCursor) ? ' (y más...)' : '';
             resultados.push(`\nCuenta: ${cuenta.name ?? cuenta.id} (${cuenta.id}) — ${campanas.length} activa(s)${hayMas}:`);
             for (const c of campanas) {
               const presupuesto = c.daily_budget
@@ -276,23 +283,21 @@ server.registerTool(
   async ({ account_input, campaign_id, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
-      const params: Record<string, unknown> = {
-        fields: 'id,name,status,effective_status,daily_budget,lifetime_budget,campaign_id',
-        limit: limite,
-      };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      let endpoint: string;
+      const fields = ['id', 'name', 'status', 'effective_status', 'daily_budget', 'lifetime_budget', 'campaign_id'];
+      const sdkParams: Record<string, any> = { limit: limite };
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      initApi();
+      let cursor: any;
       let origen: string;
       if (campaign_id.trim()) {
-        endpoint = `/${campaign_id.trim()}/adsets`;
+        cursor = await new Campaign(campaign_id.trim()).getAdSets(fields, sdkParams);
         origen = `campaña '${campaign_id}'`;
       } else {
         const accountId = await resolveAccount(account_input);
-        endpoint = `/${accountId}/adsets`;
+        cursor = await new FBAdAccount(accountId).getAdSets(fields, sdkParams);
         origen = `cuenta '${account_input}'`;
       }
-      const data = await metaGet(endpoint, params);
-      const conjuntos = data.data as any[];
+      const conjuntos = cursorToArray(cursor);
       if (!conjuntos?.length)
         return { content: [{ type: 'text', text: `No se encontraron conjuntos de anuncios en ${origen}.` }] };
       const resultados = [`Conjuntos de anuncios en ${origen} (${conjuntos.length} mostrados):\n`];
@@ -306,7 +311,7 @@ server.registerTool(
           `  Campaña ID: ${cs.campaign_id ?? 'N/A'}`,
         );
       }
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       if (nc) resultados.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
       return { content: [{ type: 'text', text: resultados.join('\n\n') }] };
     } catch (e: any) {
@@ -332,26 +337,24 @@ server.registerTool(
   async ({ account_input, adset_id, campaign_id, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
-      const params: Record<string, unknown> = {
-        fields: 'id,name,status,effective_status,adset_id,campaign_id',
-        limit: limite,
-      };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      let endpoint: string;
+      const fields = ['id', 'name', 'status', 'effective_status', 'adset_id', 'campaign_id'];
+      const sdkParams: Record<string, any> = { limit: limite };
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      initApi();
+      let cursor: any;
       let origen: string;
       if (adset_id.trim()) {
-        endpoint = `/${adset_id.trim()}/ads`;
+        cursor = await new AdSet(adset_id.trim()).getAds(fields, sdkParams);
         origen = `conjunto '${adset_id}'`;
       } else if (campaign_id.trim()) {
-        endpoint = `/${campaign_id.trim()}/ads`;
+        cursor = await new Campaign(campaign_id.trim()).getAds(fields, sdkParams);
         origen = `campaña '${campaign_id}'`;
       } else {
         const accountId = await resolveAccount(account_input);
-        endpoint = `/${accountId}/ads`;
+        cursor = await new FBAdAccount(accountId).getAds(fields, sdkParams);
         origen = `cuenta '${account_input}'`;
       }
-      const data = await metaGet(endpoint, params);
-      const anuncios = data.data as any[];
+      const anuncios = cursorToArray(cursor);
       if (!anuncios?.length)
         return { content: [{ type: 'text', text: `No se encontraron anuncios en ${origen}.` }] };
       const resultados = [`Anuncios en ${origen} (${anuncios.length} mostrados):\n`];
@@ -363,7 +366,7 @@ server.registerTool(
           `  Conjunto ID: ${a.adset_id ?? 'N/A'} | Campaña ID: ${a.campaign_id ?? 'N/A'}`,
         );
       }
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       if (nc) resultados.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
       return { content: [{ type: 'text', text: resultados.join('\n\n') }] };
     } catch (e: any) {
@@ -385,9 +388,9 @@ server.registerTool(
   async ({ adset_id }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
-      const conjunto = await metaGet(`/${adset_id}`, {
-        fields: 'name,campaign_id,status,effective_status,targeting',
-      });
+      initApi();
+      const conjunto = new AdSet(adset_id);
+      await conjunto.read(['name', 'campaign_id', 'status', 'effective_status', 'targeting']);
       const targeting = conjunto.targeting;
       if (!targeting)
         return { content: [{ type: 'text', text: `El conjunto '${conjunto.name}' (ID: ${adset_id}) no tiene datos de segmentación definidos.` }] };
@@ -528,7 +531,9 @@ server.registerTool(
     if (acc !== 'encender' && acc !== 'apagar')
       return { content: [{ type: 'text', text: "Error: 'accion' debe ser 'encender' o 'apagar'" }] };
     try {
-      await metaPost(`/${campaign_id}`, { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
+      initApi();
+      const camp = new Campaign(campaign_id);
+      await camp.update([], { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
       const emoji = acc === 'encender' ? '🚀' : '⏸';
       return { content: [{ type: 'text', text: `${emoji} Campaña ${campaign_id} ${acc === 'encender' ? 'activada' : 'pausada'} correctamente.` }] };
     } catch (e: any) {
@@ -552,7 +557,9 @@ server.registerTool(
     if (acc !== 'encender' && acc !== 'apagar')
       return { content: [{ type: 'text', text: "Error: 'accion' debe ser 'encender' o 'apagar'" }] };
     try {
-      await metaPost(`/${adset_id}`, { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
+      initApi();
+      const adset = new AdSet(adset_id);
+      await adset.update([], { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
       return { content: [{ type: 'text', text: `Conjunto ${adset_id} ${acc === 'encender' ? 'activado' : 'pausado'} correctamente.` }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `Error al cambiar estado del conjunto: ${e.message}` }] };
@@ -575,7 +582,9 @@ server.registerTool(
     if (acc !== 'encender' && acc !== 'apagar')
       return { content: [{ type: 'text', text: "Error: 'accion' debe ser 'encender' o 'apagar'" }] };
     try {
-      await metaPost(`/${ad_id}`, { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
+      initApi();
+      const ad = new Ad(ad_id);
+      await ad.update([], { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
       return { content: [{ type: 'text', text: `Anuncio ${ad_id} ${acc === 'encender' ? 'activado' : 'pausado'} correctamente.` }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `Error al cambiar estado del anuncio: ${e.message}` }] };
@@ -603,7 +612,9 @@ server.registerTool(
     const campo = tipo === 'diario' ? 'daily_budget' : 'lifetime_budget';
     const centavos = Math.round(nuevo_presupuesto * 100);
     try {
-      await metaPost(`/${campaign_id}`, { [campo]: centavos });
+      initApi();
+      const camp = new Campaign(campaign_id);
+      await camp.update([], { [campo]: centavos });
       return { content: [{ type: 'text', text: `💰 Presupuesto ${tipo} de la campaña ${campaign_id} actualizado a $${nuevo_presupuesto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.` }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `No se pudo actualizar el presupuesto: ${e.message}` }] };
@@ -629,7 +640,9 @@ server.registerTool(
     const campo = tipo === 'diario' ? 'daily_budget' : 'lifetime_budget';
     const centavos = Math.round(nuevo_presupuesto * 100);
     try {
-      await metaPost(`/${adset_id}`, { [campo]: centavos });
+      initApi();
+      const adset = new AdSet(adset_id);
+      await adset.update([], { [campo]: centavos });
       return { content: [{ type: 'text', text: `💰 Presupuesto ${tipo} del conjunto ${adset_id} actualizado a $${nuevo_presupuesto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.` }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `No se pudo actualizar el presupuesto del conjunto: ${e.message}` }] };
@@ -675,20 +688,23 @@ server.registerTool(
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
       const accountId = await resolveAccount(account_input);
-      const params: Record<string, unknown> = {
-        fields: 'campaign_name,impressions,clicks,ctr,spend,cpm,cpc,actions,cost_per_action_type,purchase_roas',
+      initApi();
+      const sdkParams: Record<string, any> = {
         time_range: JSON.stringify({ since: fecha_inicio, until: fecha_fin }),
         level: 'campaign',
         limit: limite,
       };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      const data = await metaGet(`/${accountId}/insights`, params);
-      const insights = data.data as any[];
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      const cursor = await new FBAdAccount(accountId).getInsights(
+        ['campaign_name', 'impressions', 'clicks', 'ctr', 'spend', 'cpm', 'cpc', 'actions', 'cost_per_action_type', 'purchase_roas'],
+        sdkParams,
+      );
+      const insights = cursorToArray(cursor);
       if (!insights?.length)
         return { content: [{ type: 'text', text: `No hay datos de rendimiento para el período ${fecha_inicio} → ${fecha_fin}` }] };
       const lineas = [`Reporte de rendimiento: ${fecha_inicio} → ${fecha_fin} (${insights.length} campañas)\n`];
       for (const i of insights) lineas.push(formatInsightRow(i));
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       if (nc) lineas.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
       return { content: [{ type: 'text', text: lineas.join('\n') }] };
     } catch (e: any) {
@@ -710,24 +726,27 @@ server.registerTool(
   async ({ fecha_inicio, fecha_fin, limite_por_cuenta }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
-      const cuentasData = await metaGet('/me/adaccounts', { fields: 'id,name' });
-      const cuentas = cuentasData.data as Array<{ id: string; name?: string }>;
+      initApi();
+      const cuentasCursor = await new User('me').getAdAccounts(['id', 'name'], { limit: 200 });
+      const cuentas = cursorToArray(cuentasCursor);
       if (!cuentas?.length)
         return { content: [{ type: 'text', text: 'No se encontraron cuentas publicitarias asociadas al token.' }] };
       const lineas = [`Reporte de rendimiento: ${fecha_inicio} → ${fecha_fin}\n`];
       for (const cuenta of cuentas) {
         lineas.push(`\n== Cuenta: ${cuenta.name ?? cuenta.id} (${cuenta.id}) ==`);
         try {
-          const data = await metaGet(`/${cuenta.id}/insights`, {
-            fields: 'campaign_name,impressions,clicks,ctr,spend,cpm,cpc,actions,cost_per_action_type,purchase_roas',
-            time_range: JSON.stringify({ since: fecha_inicio, until: fecha_fin }),
-            level: 'campaign',
-            limit: limite_por_cuenta,
-          });
-          const insights = data.data as any[];
+          const insightCursor = await new FBAdAccount(cuenta.id).getInsights(
+            ['campaign_name', 'impressions', 'clicks', 'ctr', 'spend', 'cpm', 'cpc', 'actions', 'cost_per_action_type', 'purchase_roas'],
+            {
+              time_range: JSON.stringify({ since: fecha_inicio, until: fecha_fin }),
+              level: 'campaign',
+              limit: limite_por_cuenta,
+            },
+          );
+          const insights = cursorToArray(insightCursor);
           if (!insights?.length) { lineas.push('  Sin datos para este período.'); continue; }
           for (const i of insights) lineas.push(formatInsightRow(i, '  '));
-          if (nextCursor(data)) lineas.push('  📄 Hay más campañas en esta cuenta (usa reporte_rendimiento con pagina_cursor)');
+          if (nextCursor(insightCursor)) lineas.push('  📄 Hay más campañas en esta cuenta (usa reporte_rendimiento con pagina_cursor)');
         } catch { lineas.push('  Error al consultar esta cuenta.'); }
       }
       return { content: [{ type: 'text', text: lineas.join('\n') }] };
@@ -757,16 +776,19 @@ server.registerTool(
     const titulo = titulos[des] ?? des.toUpperCase();
     try {
       const accountId = await resolveAccount(account_input);
-      const params: Record<string, unknown> = {
-        fields: 'campaign_name,impressions,clicks,ctr,spend',
+      initApi();
+      const sdkParams: Record<string, any> = {
         time_range: JSON.stringify({ since: fecha_inicio, until: fecha_fin }),
         level: 'campaign',
         breakdowns: des,
         limit: limite,
       };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      const data = await metaGet(`/${accountId}/insights`, params);
-      const insights = data.data as any[];
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      const cursor = await new FBAdAccount(accountId).getInsights(
+        ['campaign_name', 'impressions', 'clicks', 'ctr', 'spend'],
+        sdkParams,
+      );
+      const insights = cursorToArray(cursor);
       if (!insights?.length)
         return { content: [{ type: 'text', text: `No hay datos para desglosar en el período ${fecha_inicio} → ${fecha_fin}.` }] };
       const traducciones: Record<string, string> = {
@@ -783,7 +805,7 @@ server.registerTool(
           `    Gasto: $${parseFloat(i.spend ?? '0').toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Clics: ${i.clicks ?? 0} | CTR: ${parseFloat(i.ctr ?? '0').toFixed(2)}%\n`,
         );
       }
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       if (nc) lineas.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
       return { content: [{ type: 'text', text: lineas.join('\n') }] };
     } catch (e: any) {
@@ -808,10 +830,14 @@ server.registerTool(
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
       const accountId = await resolveAccount(account_input);
-      const params: Record<string, unknown> = { fields: 'id,name,title,body', limit: limite };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      const data = await metaGet(`/${accountId}/adcreatives`, params);
-      const creativos = data.data as any[];
+      initApi();
+      const sdkParams: Record<string, any> = { limit: limite };
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      const cursor = await new FBAdAccount(accountId).getAdCreatives(
+        ['id', 'name', 'title', 'body'],
+        sdkParams,
+      );
+      const creativos = cursorToArray(cursor);
       if (!creativos?.length)
         return { content: [{ type: 'text', text: 'No se encontraron creativos registrados en esta cuenta.' }] };
       const lineas = [`Creativos de anuncios (${creativos.length} mostrados):\n`];
@@ -822,7 +848,7 @@ server.registerTool(
           `    Texto:  ${c.body ?? 'Sin texto'}\n`,
         );
       }
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       if (nc) lineas.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
       return { content: [{ type: 'text', text: lineas.join('\n') }] };
     } catch (e: any) {
@@ -849,15 +875,18 @@ server.registerTool(
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
       const accountId = await resolveAccount(account_input);
-      const params: Record<string, unknown> = {
-        fields: 'campaign_name,campaign_id,impressions,clicks,ctr,spend,actions,cost_per_action_type',
+      initApi();
+      const sdkParams: Record<string, any> = {
         time_range: JSON.stringify({ since: fecha_inicio, until: fecha_fin }),
         level: 'campaign',
         limit: limite,
       };
-      if (pagina_cursor) params['after'] = pagina_cursor;
-      const data = await metaGet(`/${accountId}/insights`, params);
-      const insights = data.data as any[];
+      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      const cursor = await new FBAdAccount(accountId).getInsights(
+        ['campaign_name', 'campaign_id', 'impressions', 'clicks', 'ctr', 'spend', 'actions', 'cost_per_action_type'],
+        sdkParams,
+      );
+      const insights = cursorToArray(cursor);
       const alertas: string[] = [];
       for (const i of insights) {
         const gasto = parseFloat(i.spend ?? '0');
@@ -881,7 +910,7 @@ server.registerTool(
         if (problemas.length)
           alertas.push(`⚠ Campaña: ${i.campaign_name}\n` + problemas.map((p) => `  - ${p}`).join('\n'));
       }
-      const nc = nextCursor(data);
+      const nc = nextCursor(cursor);
       const paginaInfo = nc ? `\n\n📄 Siguiente página → pagina_cursor='${nc}'` : '';
       if (!alertas.length)
         return { content: [{ type: 'text', text: `No se detectaron fugas de dinero en el período ${fecha_inicio} → ${fecha_fin}. Todo parece en orden.${paginaInfo}` }] };
@@ -905,25 +934,27 @@ server.registerTool(
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
       const accountId = await resolveAccount(account_input);
-      const [campData, conjData, adsData] = await Promise.all([
-        metaGet(`/${accountId}/campaigns`, { fields: 'id,name,status,effective_status', limit: limite }),
-        metaGet(`/${accountId}/adsets`, { fields: 'id,name,status,effective_status,issues_info', limit: limite }),
-        metaGet(`/${accountId}/ads`, { fields: 'id,name,status,effective_status,issues_info', limit: limite }),
+      initApi();
+      const account = new FBAdAccount(accountId);
+      const [campCursor, conjCursor, adsCursor] = await Promise.all([
+        account.getCampaigns(['id', 'name', 'status', 'effective_status'], { limit: limite }),
+        account.getAdSets(['id', 'name', 'status', 'effective_status', 'issues_info'], { limit: limite }),
+        account.getAds(['id', 'name', 'status', 'effective_status', 'issues_info'], { limit: limite }),
       ]);
       const errores: string[] = [];
       const estadosProblema = new Set(['DISAPPROVED', 'WITH_ISSUES', 'ERROR', 'CAMPAIGN_PAUSED']);
-      for (const c of (campData.data ?? [])) {
+      for (const c of cursorToArray(campCursor)) {
         if (estadosProblema.has(c.effective_status))
           errores.push(`[CAMPAÑA] ${c.name} — Estado: ${c.effective_status}`);
       }
-      for (const cs of (conjData.data ?? [])) {
+      for (const cs of cursorToArray(conjCursor)) {
         if (estadosProblema.has(cs.effective_status)) {
           const detalle = (cs.issues_info ?? []).map((i: any) => i.error_message).filter(Boolean).join('; ') || 'sin detalle';
           errores.push(`[CONJUNTO] ${cs.name} — Estado: ${cs.effective_status} | ${detalle}`);
         }
       }
-      const adsNext = nextCursor(adsData);
-      for (const a of (adsData.data ?? [])) {
+      const adsNext = nextCursor(adsCursor);
+      for (const a of cursorToArray(adsCursor)) {
         if (estadosProblema.has(a.effective_status)) {
           const detalle = (a.issues_info ?? []).map((i: any) => i.error_message).filter(Boolean).join('; ') || 'sin detalle';
           errores.push(`[ANUNCIO] ${a.name} — Estado: ${a.effective_status} | ${detalle}`);
