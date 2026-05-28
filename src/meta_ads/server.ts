@@ -5,6 +5,33 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
+// interfaces
+
+// Estructura de una accion dentro del array de meta
+interface MetaAction{
+  action_type: string;
+  value: string;
+}
+
+// estructura del objeto insight
+interface MetaInsight{
+  campaign_name?: string;
+  impressions?: string;
+  clicks?: string;
+  ctr?: string;
+  spend?: string;
+  cpm?: string;
+  cpc?: string;
+  actions?: MetaAction[];
+  cost_per_action_type?: MetaAction[];
+  purchase_roas?: Array<{value: string}>;
+}
+
+interface JerarquiaConversion{
+  keywords: string[];
+  label: string;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bizSdk = require('facebook-nodejs-business-sdk');
 const { FacebookAdsApi, AdAccount: FBAdAccount, Campaign, AdSet, Ad, User } = bizSdk;
@@ -283,7 +310,7 @@ server.registerTool(
   async ({ account_input, campaign_id, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
-      const fields = ['id', 'name', 'status', 'effective_status', 'daily_budget', 'lifetime_budget', 'campaign_id'];
+      const fields = ['id', 'name', 'status', 'effective_status', 'daily_budget', 'lifetime_budget', 'campaign_id', 'optimization_goal', 'destination_type', 'billing_event'];
       const sdkParams: Record<string, any> = { limit: limite };
       if (pagina_cursor) sdkParams.after = pagina_cursor;
       initApi();
@@ -305,9 +332,12 @@ server.registerTool(
         const raw = presupuestoStr(cs.daily_budget, cs.lifetime_budget);
         const presupuesto = raw === 'no definido' ? 'heredado de campaña' : raw;
         const estado = traducirEstado(cs.effective_status ?? '');
+        const optGoal = cs.optimization_goal ?? 'N/A';
+        const destType = cs.destination_type ?? 'N/A';
         resultados.push(
           `- ${cs.name} (ID: ${cs.id})\n` +
           `  Estado: ${estado} | Presupuesto: ${presupuesto}\n` +
+          `  Optimización: ${optGoal} → ${destType}\n` +
           `  Campaña ID: ${cs.campaign_id ?? 'N/A'}`,
         );
       }
@@ -652,34 +682,84 @@ server.registerTool(
 
 // ─── REPORTES DE RENDIMIENTO ──────────────────────────────────────────────────
 
-function formatInsightRow(i: any, indent = ''): string {
-  const conversiones =
-    (i.actions ?? []).find((a: any) => a.action_type === 'purchase')?.value ?? '0';
-  const cpa =
-    (i.cost_per_action_type ?? []).find((a: any) => a.action_type === 'purchase')?.value ?? 'N/A';
-  const roas = i.purchase_roas?.[0]?.value ?? 'N/A';
+function formatInsightRow(i: MetaInsight, indent = ''): string {
+  const actions = i.actions ?? [];
+  const costActions = i.cost_per_action_type ?? [];
+
+  // Jerarquia principal
+  const jerarquiaConversiones: JerarquiaConversion[] = [
+    {keywords: ['purchase'], label: 'compras'},
+    {keywords: ['lead', 'lead_grouped', 'schedule', 'submit_application'], label: 'Leads/Citas'},
+    {keywords: ['messaging_first_reply', 'conversation_started'], label: 'Mensajes Iniciados'},
+    {keywords: ['add_to_cart', 'initiate_checkout'], label: 'Intenciones'},
+    {keywords: ['landing_page_view'], label: 'Visitas web'},
+    {keywords: ['link_click'], label: 'Clics'}
+  ];
+
+  let labelConv = 'Conversiones';
+  let valorConv = '0';
+  let targetType = 'purchase';
+
+  for(const n of jerarquiaConversiones){
+    const accionEncontrada = actions.find((a: MetaAction) =>
+      n.keywords.some((kw) => a.action_type.includes(kw))
+    );
+
+    if(accionEncontrada){
+      labelConv = n.label;
+      valorConv = accionEncontrada.value;
+      targetType = accionEncontrada.action_type;
+      break;
+    }
+  }
+
+  const cpaMatch = costActions.find((a: MetaAction) => a.action_type === targetType);
+  const cpa: string = cpaMatch ? `$${parseFloat(cpaMatch.value).toFixed(2)}` : 'N/A';
+
+  // deglose del chat
+  const metricasMensajes: MetaAction[] = actions.filter((a: MetaAction) =>
+    a.action_type.includes('messaging')
+  );
+
+  let desgloseMensajeria: string = '';
+  if(metricasMensajes.length > 0){
+    desgloseMensajeria = `\n${indent}  --- Desglose de Chat ---`;
+    for(const m of metricasMensajes){
+      const nombreLimpio = m.action_type.replace('onsite_conversion.', '');
+      desgloseMensajeria += `\n${indent}  * ${nombreLimpio}: ${m.value}`;
+    }
+  }
+
+  const spend: string = i.spend ? parseFloat(i.spend).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '0.00';
+  const cpm: string = i.cpm ? parseFloat(i.cpm).toFixed(2) : '0.00';
+  const cpc: string = i.cpc ? parseFloat(i.cpc).toFixed(2) : '0.00';
+  const ctr: string = i.ctr ? parseFloat(i.ctr).toFixed(2) : '0.00';
+
+  const roas: string = i.purchase_roas?.[0]?.value ?? 'N/A';
+
   return (
     `${indent}Campaña: ${i.campaign_name ?? 'N/A'}\n` +
-    `${indent}  Impresiones : ${i.impressions ?? 0}\n` +
-    `${indent}  Clics       : ${i.clicks ?? 0}\n` +
-    `${indent}  CTR         : ${i.ctr ?? 0}%\n` +
-    `${indent}  Gasto       : $${i.spend ?? 0}\n` +
-    `${indent}  CPM         : $${i.cpm ?? 0}\n` +
-    `${indent}  CPC         : $${i.cpc ?? 0}\n` +
-    `${indent}  Conversiones: ${conversiones}\n` +
-    `${indent}  CPA         : $${cpa}\n` +
-    `${indent}  ROAS        : ${roas}\n`
+    `${indent}  Impresiones : ${parseInt(i.impressions ?? '0', 10).toLocaleString('es-MX')}\n` +
+    `${indent}  Clics       : ${parseInt(i.clicks ?? '0', 10).toLocaleString('es-MX')}\n` +
+    `${indent}  CTR         : ${ctr}%\n` +
+    `${indent}  Gasto       : $${spend}\n` +
+    `${indent}  CPM         : $${cpm}\n` +
+    `${indent}  CPC         : $${cpc}\n` +
+    `${indent}  ${labelConv}: ${valorConv}\n` +
+    `${indent}  CPA (${labelConv}): ${cpa}\n` +
+    `${indent}  ROAS        : ${roas}` +
+    desgloseMensajeria + `\n`
   );
 }
 
 server.registerTool(
   'reporte_rendimiento',
   {
-    description: 'Obtener métricas clave (KPIs) por campaña para un rango de fechas. Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.',
+    description: 'Obtener métricas clave (KPIs) por campaña para un rango de fechas. Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, conversaciones, CPA, ROAS.',
     inputSchema: {
       account_input: z.string().describe('ID o nombre de la cuenta publicitaria'),
-      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_inicio: z.string().optional().describe('Opcional. Formato YYYY-MM-DD. Por defecto: hace 30 días'),
+      fecha_fin: z.string().optional().describe('Opcional. Formato YYYY-MM-DD. Por defecto: hoy'),
       limite: z.number().int().default(25).describe('Campañas por página'),
       pagina_cursor: z.string().default(''),
     },
@@ -687,19 +767,28 @@ server.registerTool(
   async ({ account_input, fecha_inicio, fecha_fin, limite, pagina_cursor }) => {
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
     try {
+      const hoy = new Date();
+      const dias = new Date();
+      dias.setDate(hoy.getDate() - 30);
+
+      const fFin = fecha_fin ?? hoy.toISOString().split('T')[0];
+      const fInicio = fecha_inicio ?? dias.toISOString().split('T')[0];
+
       const accountId = await resolveAccount(account_input);
       initApi();
       const sdkParams: Record<string, any> = {
-        time_range: JSON.stringify({ since: fecha_inicio, until: fecha_fin }),
+        time_range: JSON.stringify({ since: fInicio, until: fFin }),
         level: 'campaign',
         limit: limite,
       };
-      if (pagina_cursor) sdkParams.after = pagina_cursor;
+      if (pagina_cursor) sdkParams.after = pagina_cursor; 
       const cursor = await new FBAdAccount(accountId).getInsights(
         ['campaign_name', 'impressions', 'clicks', 'ctr', 'spend', 'cpm', 'cpc', 'actions', 'cost_per_action_type', 'purchase_roas'],
         sdkParams,
       );
+
       const insights = cursorToArray(cursor);
+
       if (!insights?.length)
         return { content: [{ type: 'text', text: `No hay datos de rendimiento para el período ${fecha_inicio} → ${fecha_fin}` }] };
       const lineas = [`Reporte de rendimiento: ${fecha_inicio} → ${fecha_fin} (${insights.length} campañas)\n`];
@@ -718,8 +807,8 @@ server.registerTool(
   {
     description: 'Obtener métricas clave (KPIs) de todas las cuentas accesibles para un rango de fechas.',
     inputSchema: {
-      fecha_inicio: z.string().describe('Formato YYYY-MM-DD'),
-      fecha_fin: z.string().describe('Formato YYYY-MM-DD'),
+      fecha_inicio: z.string().optional().describe('Formato YYYY-MM-DD'),
+      fecha_fin: z.string().optional().describe('Formato YYYY-MM-DD'),
       limite_por_cuenta: z.number().int().default(20),
     },
   },
