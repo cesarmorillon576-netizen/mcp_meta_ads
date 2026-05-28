@@ -2,7 +2,7 @@ name: Build Windows Distribution
 
 on:
   push:
-    branches: [typescript]
+    branches: [typescript, sdk-meta-ads]
   workflow_dispatch:
 
 jobs:
