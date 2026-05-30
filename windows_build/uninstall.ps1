@@ -112,6 +112,19 @@ else { Write-Info "Claude Desktop: no detectado, se omite." }
 $claudeCodeConfigPath = Join-Path $env:USERPROFILE ".claude.json"
 Remove-McpEntries $claudeCodeConfigPath "Claude Code"
 
+# --- Eliminar skills instalados (solo los de este paquete) --------------------
+$skillsOrigen = Join-Path $scriptDir "skills"
+$skillsDestino = Join-Path $env:USERPROFILE ".claude\skills"
+if ((Test-Path $skillsOrigen) -and (Test-Path $skillsDestino)) {
+    Get-ChildItem $skillsOrigen -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $dest = Join-Path $skillsDestino $_.Name
+        if (Test-Path $dest) {
+            try { Remove-Item $dest -Recurse -Force -ErrorAction Stop; Write-OK "Skill eliminado: $($_.Name)" }
+            catch { Write-Warn "No se pudo eliminar el skill $($_.Name): $_" }
+        }
+    }
+}
+
 # --- Ofrecer eliminar el .env -------------------------------------------------
 Write-Host ""
 $envPath = Join-Path $scriptDir ".env"

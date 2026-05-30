@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdirSync, copyFileSync, existsSync, createWriteStream } from 'fs';
+import { mkdirSync, copyFileSync, existsSync, createWriteStream, cpSync, rmSync } from 'fs';
 import { get } from 'https';
 
 mkdirSync('dist/meta_ads', { recursive: true });
@@ -23,6 +23,15 @@ console.log('Build complete → dist/meta_ads/server.js  dist/google_ads/server.
 copyFileSync('dist/meta_ads/server.js', 'windows_build/meta_ads.js');
 copyFileSync('dist/google_ads/server.js', 'windows_build/google_ads.js');
 console.log('Copied      → windows_build/meta_ads.js  windows_build/google_ads.js');
+
+// Skills de Claude Code: viajan dentro del paquete para que el instalador
+// (setup.ps1) los copie a %USERPROFILE%\.claude\skills durante la instalacion.
+if (existsSync('skills')) {
+  // Regenerar desde cero para no arrastrar skills renombrados/eliminados.
+  rmSync('windows_build/skills', { recursive: true, force: true });
+  cpSync('skills', 'windows_build/skills', { recursive: true });
+  console.log('Copied      → windows_build/skills/ (playbooks para Claude Code)');
+}
 
 // ---------------------------------------------------------------------------
 // Portable Node.js for Windows — bundled in the distribution zip so end users

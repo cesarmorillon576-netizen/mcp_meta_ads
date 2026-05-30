@@ -370,6 +370,36 @@ if ($instalarCode) {
     }
 }
 
+# --- 9b. Instalar skills de Claude Code ---------------------------------------
+# Los skills son "playbooks" que le dicen a Claude como usar las herramientas
+# MCP (p.ej. la auditoria completa de cuentas Meta). Solo aplican a Claude Code,
+# que los lee desde %USERPROFILE%\.claude\skills. Es un paso aditivo: si algo
+# falla aqui, la instalacion del servidor MCP no se ve afectada.
+if ($instalarCode) {
+    $skillsOrigen = Join-Path $scriptDir "skills"
+    if (Test-Path $skillsOrigen) {
+        $skillsDestino = Join-Path $env:USERPROFILE ".claude\skills"
+        try {
+            if (-not (Test-Path $skillsDestino)) {
+                $null = New-Item -ItemType Directory -Path $skillsDestino -Force
+            }
+            $instalados = 0
+            Get-ChildItem $skillsOrigen -Directory -ErrorAction Stop | ForEach-Object {
+                $dest = Join-Path $skillsDestino $_.Name
+                # Limpiar destino previo: Copy-Item -Recurse sobre una carpeta existente
+                # anidaria el skill (\auditoria-meta-ads\auditoria-meta-ads) en reinstalaciones.
+                if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction Stop }
+                Copy-Item $_.FullName $dest -Recurse -Force -ErrorAction Stop
+                Write-OK "Skill instalado: $($_.Name)"
+                $instalados++
+            }
+            if ($instalados -eq 0) { Write-Warn "No se encontraron skills en el paquete." }
+        } catch {
+            Write-Warn "No se pudieron instalar los skills (el servidor MCP no se ve afectado): $_"
+        }
+    }
+}
+
 # --- 10. Gestionar archivo .env -----------------------------------------------
 $envPath   = Join-Path $scriptDir ".env"
 $envNuevo  = $false

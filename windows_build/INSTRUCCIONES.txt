@@ -74,6 +74,17 @@ Una vez configurado, escribe directamente en Claude lo que necesitas:
   "Apaga la campana ID 12345678"
   "Que anuncios tienen errores o rechazos?"
 
+SKILLS INCLUIDOS (solo Claude Code)
+-----------------------------------
+Si instalaste para Claude Code, se copia tambien el playbook de
+"auditoria-meta-ads" en %USERPROFILE%\.claude\skills. Con el, Claude hace
+una auditoria completa y ordenada de una cuenta consultando TODAS las
+herramientas (rendimiento, campanas, mensajeria, segmentacion) sin saltarse
+ninguna. Pruebalo escribiendo, por ejemplo:
+
+  "Dame la auditoria completa de la cuenta del Dr. X"
+  "Como va la cuenta de la Dra. Y? Hazme un diagnostico"
+
 DESINSTALAR
 -----------
 Ejecuta "uninstall.bat" para eliminar MetaAds y GoogleAds de la
