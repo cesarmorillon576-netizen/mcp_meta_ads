@@ -715,18 +715,23 @@ export function evaluarResultadoCampana(insight: MetaInsight | undefined): { tip
   return { tipo: tipoObjetivo, numResultado, etiqueta: sustantivoResultado(tipoObjetivo), conversaciones, evaluable };
 }
 
-export function construirEmbudo(actions: MetaAction[] | undefined, gasto: number): { pasos: { label: string; num: number }[]; base: number; cpaNominal: number | null; cpaReal: number | null; bloqueos: number } {
-  const a = actions ?? [];
-  const pasos = [
-    { label: 'Contactos', num: valAccion(a, ACCIONES.CONTACTO_MENSAJERIA) },
-    { label: 'Conversaciones iniciadas', num: valAccion(a, ACCIONES.CONVERSACION_INICIADA) },
-    { label: 'Primera respuesta', num: valAccion(a, ACCIONES.PRIMER_RESPUESTA) },
+export function construirEmbudo(fila: any, gasto: number): { pasos: { label: string; num: number }[]; base: number; cpaNominal: number | null; cpaReal: number | null; bloqueos: number } {
+  const a: MetaAction[] = fila?.actions ?? [];
+  const iniciadas = valAccion(a, ACCIONES.CONVERSACION_INICIADA);
+  const contactos = valAccion(a, ACCIONES.CONTACTO_MENSAJERIA);
+  const hayMensajeria = iniciadas > 0 || contactos > 0;
+  const clics = parseInt(fila?.inline_link_clicks ?? '0', 10) || valAccion(a, ACCIONES.LINK_CLICK);
+  const prof3 = valAccion(a, ACCIONES.PROFUNDIDAD_3);
+  const pasos = (hayMensajeria ? [
+    { label: 'Clics en el enlace', num: clics },
+    { label: 'Vieron el mensaje de bienvenida', num: valAccion(a, ACCIONES.MENSAJE_BIENVENIDA) },
+    { label: 'Contactos de mensajería', num: contactos },
+    { label: 'Conversaciones iniciadas', num: iniciadas },
+    { label: 'Primera respuesta del negocio', num: valAccion(a, ACCIONES.PRIMER_RESPUESTA) },
     { label: 'Profundidad 2 mensajes', num: valAccion(a, ACCIONES.PROFUNDIDAD_2) },
     { label: 'Profundidad 3 mensajes', num: valAccion(a, ACCIONES.PROFUNDIDAD_3) },
     { label: 'Profundidad 5 mensajes', num: valAccion(a, ACCIONES.PROFUNDIDAD_5) },
-  ].filter((p) => p.num > 0);
-  const iniciadas = valAccion(a, ACCIONES.CONVERSACION_INICIADA);
-  const prof3 = valAccion(a, ACCIONES.PROFUNDIDAD_3);
+  ] : []).filter((p) => p.num > 0);
   return {
     pasos,
     base: pasos[0]?.num ?? 0,

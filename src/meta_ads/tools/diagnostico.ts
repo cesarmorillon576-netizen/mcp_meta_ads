@@ -128,10 +128,10 @@ export function registrarHerramientasDiagnostico(server: McpServer) {
         const accountId = await resolveAccount(account_input);
         initApi();
         const objeto = resolverObjeto(objeto_id, 'campana', accountId);
-        const cursor = await objeto.getInsights(['spend', 'actions'], { time_range: JSON.stringify({ since: fInicio, until: fFin }) });
+        const cursor = await objeto.getInsights(['spend', 'inline_link_clicks', 'actions'], { time_range: JSON.stringify({ since: fInicio, until: fFin }) });
         const fila = cursorToArray(cursor)[0];
         const gasto = parseFloat(fila?.spend ?? '0') || 0;
-        const { pasos, base, cpaNominal, cpaReal, bloqueos } = construirEmbudo(fila?.actions, gasto);
+        const { pasos, base, cpaNominal, cpaReal, bloqueos } = construirEmbudo(fila, gasto);
 
         if (!pasos.length) return { content: [{ type: 'text', text: `Sin datos de mensajería para ${fInicio} → ${fFin}.` }] };
         const lineas = [`Embudo de conversación — ${objeto_id ? `campaña ${objeto_id}` : `cuenta ${account_input}`} (${fInicio} → ${fFin})\n`];

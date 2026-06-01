@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { credencialesOk, errorCredenciales, initApi, resolveAccount, cursorToArray, mejorResultado, money, rangoPorDefecto, resolverObjeto, construirEmbudo, evaluarResultadoCampana, flagsCalidad, ESTADOS_PROBLEMA } from '../helpers.js';
+import { generarReporteCompletoCampana } from './reporte_completo.js';
 
 const DIA = 86400000;
 const flt = (v: any) => parseFloat(v ?? '0') || 0;
@@ -62,9 +63,9 @@ async function seccComparacion(cuenta: any, fInicio: string, fFin: string): Prom
 }
 
 async function seccFunnel(cuenta: any, fInicio: string, fFin: string): Promise<Seccion> {
-  const fila = cursorToArray(await cuenta.getInsights(['spend', 'actions'], { time_range: JSON.stringify({ since: fInicio, until: fFin }) }))[0];
+  const fila = cursorToArray(await cuenta.getInsights(['spend', 'inline_link_clicks', 'actions'], { time_range: JSON.stringify({ since: fInicio, until: fFin }) }))[0];
   const gasto = flt(fila?.spend);
-  const { pasos, base, cpaNominal, cpaReal, bloqueos } = construirEmbudo(fila?.actions, gasto);
+  const { pasos, base, cpaNominal, cpaReal, bloqueos } = construirEmbudo(fila, gasto);
   if (!pasos.length) return { titulo: '3. Embudo de conversación (WhatsApp)', lineas: ['Sin datos de mensajería en el periodo.'], alertas: [] };
   const lineas: string[] = [];
   const alertas: string[] = [];
@@ -228,6 +229,40 @@ async function seccSalud(cuenta: any, fInicio: string, fFin: string): Promise<Se
   return { titulo: '9. Salud de conjuntos', lineas, alertas };
 }
 
+async function seccCampanas(cuenta: any, fInicio: string, fFin: string): Promise<Seccion> {
+  const filas = cursorToArray(await cuenta.getInsights(
+    ['campaign_id', 'campaign_name', 'spend', 'cpm', 'impressions', 'inline_link_clicks', 'actions'],
+    { time_range: JSON.stringify({ since: fInicio, until: fFin }), level: 'campaign', limit: 100 },
+  ));
+  const conGasto = filas.filter((f: any) => flt(f.spend) > 0).sort((a: any, b: any) => flt(b.spend) - flt(a.spend));
+  if (!conGasto.length) return { titulo: '10. Detalle exhaustivo por campaña', lineas: ['Sin campañas con gasto en el periodo.'], alertas: [] };
+
+  const cpms = conGasto.map((f: any) => flt(f.cpm)).filter((x: number) => x > 0).sort((a: number, b: number) => a - b);
+  const cpmMed = cpms.length ? cpms[Math.floor(cpms.length / 2)] : 0;
+  const TOPE = 8;
+  const objetivo = conGasto.slice(0, TOPE);
+  const alertas: string[] = [];
+  for (const f of objetivo) {
+    const { pasos } = construirEmbudo(f, flt(f.spend));
+    const clics = pasos.find((p) => p.label.startsWith('Clics'))?.num ?? 0;
+    const iniciadas = pasos.find((p) => p.label.startsWith('Conversaciones'))?.num ?? 0;
+    if (clics > 30 && iniciadas > 0 && iniciadas < clics * 0.25)
+      alertas.push(`🔴 "${f.campaign_name}": de ${clics} clics solo ${iniciadas} escribieron (${((iniciadas / clics) * 100).toFixed(0)}%) — fuga al saltar a WhatsApp`);
+    const cpm = flt(f.cpm);
+    if (cpmMed > 0 && cpm > cpmMed * 1.8)
+      alertas.push(`🟠 "${f.campaign_name}": CPM $${money(cpm)} (${(cpm / cpmMed).toFixed(1)}x la mediana) — audiencia probablemente muy chica`);
+  }
+
+  const reportes = await Promise.all(objetivo.map(async (f: any) => {
+    try { return await generarReporteCompletoCampana(String(f.campaign_id), { timeRange: { since: fInicio, until: fFin }, incluirAnuncios: true }); }
+    catch (e: any) { return `(no se pudo detallar "${f.campaign_name}": ${e.message})`; }
+  }));
+  const lineas: string[] = [];
+  reportes.forEach((r) => { lineas.push(r, ''); });
+  if (conGasto.length > TOPE) lineas.push(`(+${conGasto.length - TOPE} campañas más con gasto, no detalladas por límite de tamaño)`);
+  return { titulo: '10. Detalle exhaustivo por campaña', lineas, alertas };
+}
+
 export function registrarHerramientasAuditoria(server: McpServer) {
   server.registerTool(
     'auditoria_completa',
@@ -264,6 +299,7 @@ export function registrarHerramientasAuditoria(server: McpServer) {
             safe(seccCalidad(cuenta, fInicio, fFin), '7. Calidad y fatiga de anuncios'),
             safe(seccErrores(cuenta), '8. Errores y rechazos'),
             safe(seccSalud(cuenta, fInicio, fFin), '9. Salud de conjuntos'),
+            safe(seccCampanas(cuenta, fInicio, fFin), '10. Detalle exhaustivo por campaña'),
           );
         }
         const secciones = await Promise.all(tareas);
@@ -310,9 +346,9 @@ export function registrarHerramientasAuditoria(server: McpServer) {
               '',
               'Primero pregúntame cuál de estos dos modos prefiero antes de empezar:',
               '',
-              '🚀 RÁPIDA — llama una sola vez a `auditoria_completa` con el account_input. Trae en un golpe resumen, comparación con el periodo anterior, embudo de WhatsApp con CPA real, ranking de anuncios, segmentación, fugas, calidad/fatiga, errores y salud de conjuntos, con hallazgos priorizados. Ideal para un panorama veloz.',
+              '🚀 EXHAUSTIVA (una sola tool) — llama `auditoria_completa` con el account_input y profundidad="completo" (por defecto). Trae en UN golpe: resumen, comparación con el periodo anterior, embudo de WhatsApp desde el CLIC (clic → vio bienvenida → conversación → profundidad) con CPA real, ranking de anuncios, segmentación, fugas, calidad/fatiga, errores, salud de conjuntos, hallazgos priorizados, Y además la sección 10 con el reporte completo de CADA campaña con gasto (conjuntos, segmentación configurada, entrega real por plataforma/edad/género, anuncios y CTA). Es el modo recomendado para entregar un documento. Usa profundidad="resumen" solo si quieres el panorama de 3 secciones sin el detalle por campaña.',
               '',
-              '🔬 METÓDICA — recorre las herramientas una por una razonando entre cada paso: reporte_rendimiento → obtener_campanas_activas → reporte_completo_campana (por cada campaña con gasto) → obtener_reporte_mensajeria → obtener_config_mensajeria_adset, y profundiza con desglose_resultados / diagnostico_calidad / funnel_conversacion donde haga falta. Ideal cuando se busca el diagnóstico fino.',
+              '🔬 METÓDICA — recorre las herramientas una por una razonando entre cada paso: reporte_rendimiento → obtener_campanas_activas → reporte_completo_campana (por cada campaña con gasto) → obtener_reporte_mensajeria → obtener_config_mensajeria_adset, y profundiza con desglose_resultados / diagnostico_calidad / funnel_conversacion donde haga falta. Útil cuando quieres ir validando hipótesis paso a paso en vez de recibir todo de golpe.',
               '',
               'Reglas para interpretar (ambos modos):',
               '- La mayoría de las campañas son click-to-WhatsApp (objetivo CONVERSATIONS / OUTCOME_ENGAGEMENT). El dato decisivo es el embudo de mensajería.',
