@@ -12,7 +12,7 @@ import {
 } from './types.js';
 
 const bizSDK = require('facebook-nodejs-business-sdk');
-const {FacebookAdsApi, User} = bizSDK;
+const {FacebookAdsApi, User, AdAccount, Campaign, AdSet, Ad} = bizSDK;
 
 export function findEnvPath(): string{
     if((process as any).pkg !== undefined){
@@ -94,6 +94,26 @@ export async function resolveAccount(accountInput: string): Promise<string> {
     if (match) return match.id;
   } catch {}
   return `act_${input}`;
+}
+
+export function money(n: number): string {
+  return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function rangoPorDefecto(fechaInicio?: string, fechaFin?: string, dias = 30): { fInicio: string; fFin: string } {
+  const hoy = new Date();
+  const desde = new Date();
+  desde.setDate(hoy.getDate() - dias);
+  return {
+    fInicio: fechaInicio ?? desde.toISOString().split('T')[0],
+    fFin: fechaFin ?? hoy.toISOString().split('T')[0],
+  };
+}
+
+export function resolverObjeto(objetoId: string | undefined, objetoTipo: string, accountId: string): any {
+  if (!objetoId) return new AdAccount(accountId);
+  const constructores: Record<string, any> = { campana: Campaign, conjunto: AdSet, anuncio: Ad };
+  return new (constructores[objetoTipo] ?? Campaign)(objetoId);
 }
 
 export function presupuestoStr(daily?: string, lifetime?: string): string {
@@ -417,6 +437,21 @@ export function clasificarPorObjetivo(objective?: string): string {
     OUTCOME_TRAFFIC: '🔗 Tráfico',
     OUTCOME_AWARENESS: '📣 Alcance',
     OUTCOME_APP_PROMOTION: '📱 Promoción de app',
+    MESSAGES: '💬 Mensajería / Conversaciones',
+    CONVERSATIONS: '💬 Mensajería / Conversaciones',
+    LEAD_GENERATION: '📝 Leads (formulario)',
+    LINK_CLICKS: '🔗 Tráfico',
+    CONVERSIONS: '🛒 Conversiones (web)',
+    PRODUCT_CATALOG_SALES: '🛒 Conversiones (web)',
+    POST_ENGAGEMENT: '👍 Interacciones / Engagement',
+    PAGE_LIKES: '👍 Interacciones / Engagement',
+    EVENT_RESPONSES: '👍 Interacciones / Engagement',
+    VIDEO_VIEWS: '👍 Interacciones / Engagement',
+    REACH: '📣 Alcance',
+    BRAND_AWARENESS: '📣 Alcance',
+    LOCAL_AWARENESS: '📣 Alcance',
+    STORE_VISITS: '📣 Alcance',
+    APP_INSTALLS: '📱 Promoción de app',
   };
   return mapa[o] ?? `❓ ${objective ?? 'N/D'}`;
 }
@@ -445,6 +480,14 @@ const ETIQUETAS_DESGLOSE: Record<string, string> = {
   facebook: 'Facebook', instagram: 'Instagram', messenger: 'Messenger',
   audience_network: 'Audience Network', whatsapp: 'WhatsApp',
   threads: 'Threads', oculus: 'Meta Quest',
+  feed: 'Feed', facebook_stories: 'Stories FB', instagram_stories: 'Stories IG',
+  instagram_reels: 'Reels IG', facebook_reels: 'Reels FB', reels: 'Reels',
+  instagram_explore: 'Explorar IG', instagram_explore_grid_home: 'Explorar IG',
+  marketplace: 'Marketplace', video_feeds: 'Feed de video', story: 'Stories',
+  right_hand_column: 'Columna derecha', search: 'Búsqueda', instream_video: 'Video instream',
+  biz_disco_feed: 'Descubrimiento', profile_feed: 'Feed de perfil', rewarded_video: 'Video premiado',
+  mobile_app: 'App móvil', mobile_web: 'Web móvil', desktop: 'Escritorio', unknown_device: 'Desconocido',
+  android_smartphone: 'Android', iphone: 'iPhone', ipad: 'iPad', android_tablet: 'Tablet Android',
 };
 
 export function traducirSegmento(raw?: string): string {
@@ -524,6 +567,28 @@ export function detectarResultado(insight: MetaInsight | undefined, tipo: string
     const v = get(ACCIONES.POST_ENGAGEMENT);
     return v != null ? { label: 'Interacciones', value: v, type: ACCIONES.POST_ENGAGEMENT } : null;
   }
+  return null;
+}
+
+export function mejorResultado(insight: MetaInsight | undefined): { num: number; etiqueta: string } | null {
+  const actions: MetaAction[] = insight?.actions ?? [];
+  if (!actions.length) return null;
+  const val = (type: string) => {
+    const a = actions.find((x) => x.action_type === type);
+    return a ? parseInt(a.value, 10) || 0 : 0;
+  };
+  const valArr = (types: string[]) => {
+    for (const t of types) { const v = val(t); if (v > 0) return v; }
+    return 0;
+  };
+  const candidatos: { num: number; etiqueta: string }[] = [
+    { num: val(ACCIONES.CONVERSACION_INICIADA), etiqueta: 'conversaciones' },
+    { num: val(ACCIONES.LEAD), etiqueta: 'leads' },
+    { num: valArr(ACCIONES_COMPRA), etiqueta: 'compras' },
+    { num: valArr(ACCIONES_LLAMADA), etiqueta: 'llamadas' },
+    { num: val(ACCIONES.VISITA_PAGINA), etiqueta: 'visitas' },
+  ];
+  for (const c of candidatos) if (c.num > 0) return c;
   return null;
 }
 

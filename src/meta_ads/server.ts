@@ -18,6 +18,8 @@ async function main(): Promise<void> {
     await server.connect(transport);
 }
 
+
+
 main().catch((err) => {
     process.stderr.write(`Error fatal: ${err}\n`);
     process.exit(1);

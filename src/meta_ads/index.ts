@@ -9,6 +9,9 @@ import { registrarHerramientasReportesGenerales } from './tools/reportes_general
 import { registrarHerramientasReportes } from './tools/reportes.js';
 import { registrarHerramientasReporteCompleto } from './tools/reporte_completo.js';
 import { registrarHerramientasCreativos } from './tools/creativos.js';
+import { registrarHerramientasMonitoreo } from './tools/monitoreo.js';
+import { registrarHerramientasAnalisis } from './tools/analisis.js';
+import { registrarHerramientasDiagnostico } from './tools/diagnostico.js';
 
 function conSanitizacion(server: McpServer): McpServer {
   const registrarOriginal = (server.registerTool as any).bind(server);
@@ -38,4 +41,7 @@ export function registrarTodasLasHerramientas(server: McpServer) {
   registrarHerramientasReportes(s);
   registrarHerramientasReporteCompleto(s);
   registrarHerramientasCreativos(s);
+  registrarHerramientasMonitoreo(s);
+  registrarHerramientasAnalisis(s);
+  registrarHerramientasDiagnostico(s);
 }
