@@ -101,12 +101,10 @@ export function money(n: number): string {
 }
 
 export function rangoPorDefecto(fechaInicio?: string, fechaFin?: string, dias = 30): { fInicio: string; fFin: string } {
-  const hoy = new Date();
-  const desde = new Date();
-  desde.setDate(hoy.getDate() - dias);
+  const ahora = Date.now();
   return {
-    fInicio: fechaInicio ?? desde.toISOString().split('T')[0],
-    fFin: fechaFin ?? hoy.toISOString().split('T')[0],
+    fInicio: fechaInicio ?? new Date(ahora - dias * 86400000).toISOString().split('T')[0],
+    fFin: fechaFin ?? new Date(ahora).toISOString().split('T')[0],
   };
 }
 
@@ -690,3 +688,63 @@ export function formatResumenMensajeria(insight: MetaInsight | undefined, indent
   }
   return L;
 }
+export function valAccion(actions: MetaAction[] | undefined, tipo: string): number {
+  return parseInt((actions ?? []).find((a) => a.action_type === tipo)?.value ?? '0', 10) || 0;
+}
+
+export function sustantivoResultado(tipo: string): string {
+  if (tipo.includes('Mensajería')) return 'conversaciones';
+  if (tipo.includes('Leads')) return 'leads';
+  if (tipo.includes('Conversiones')) return 'compras/conversiones';
+  if (tipo.includes('Llamadas')) return 'llamadas';
+  if (tipo.includes('Tráfico')) return 'visitas a la página';
+  if (tipo.includes('Interacciones')) return 'interacciones';
+  return 'resultados';
+}
+
+export function evaluarResultadoCampana(insight: MetaInsight | undefined): { tipo: string; numResultado: number; etiqueta: string; conversaciones: number; evaluable: boolean } {
+  const actions = insight?.actions ?? [];
+  const conversaciones = valAccion(actions, ACCIONES.CONVERSACION_INICIADA);
+  const tipoObjetivo = clasificarPorObjetivo(insight?.objective);
+  if (conversaciones > 0) {
+    return { tipo: '💬 Mensajería / Conversaciones', numResultado: conversaciones, etiqueta: 'conversaciones', conversaciones, evaluable: true };
+  }
+  const res = detectarResultado(insight, tipoObjetivo);
+  const numResultado = res ? parseInt(res.value ?? '0', 10) || 0 : 0;
+  const evaluable = ['Mensajería', 'Leads', 'Conversiones', 'Llamadas', 'Tráfico', 'Interacciones'].some((t) => tipoObjetivo.includes(t));
+  return { tipo: tipoObjetivo, numResultado, etiqueta: sustantivoResultado(tipoObjetivo), conversaciones, evaluable };
+}
+
+export function construirEmbudo(actions: MetaAction[] | undefined, gasto: number): { pasos: { label: string; num: number }[]; base: number; cpaNominal: number | null; cpaReal: number | null; bloqueos: number } {
+  const a = actions ?? [];
+  const pasos = [
+    { label: 'Contactos', num: valAccion(a, ACCIONES.CONTACTO_MENSAJERIA) },
+    { label: 'Conversaciones iniciadas', num: valAccion(a, ACCIONES.CONVERSACION_INICIADA) },
+    { label: 'Primera respuesta', num: valAccion(a, ACCIONES.PRIMER_RESPUESTA) },
+    { label: 'Profundidad 2 mensajes', num: valAccion(a, ACCIONES.PROFUNDIDAD_2) },
+    { label: 'Profundidad 3 mensajes', num: valAccion(a, ACCIONES.PROFUNDIDAD_3) },
+    { label: 'Profundidad 5 mensajes', num: valAccion(a, ACCIONES.PROFUNDIDAD_5) },
+  ].filter((p) => p.num > 0);
+  const iniciadas = valAccion(a, ACCIONES.CONVERSACION_INICIADA);
+  const prof3 = valAccion(a, ACCIONES.PROFUNDIDAD_3);
+  return {
+    pasos,
+    base: pasos[0]?.num ?? 0,
+    cpaNominal: iniciadas > 0 && gasto > 0 ? gasto / iniciadas : null,
+    cpaReal: prof3 > 0 && gasto > 0 ? gasto / prof3 : null,
+    bloqueos: valAccion(a, ACCIONES.BLOQUEO_MENSAJERIA),
+  };
+}
+
+export function flagsCalidad(fila: any): { problemas: string[]; frecuencia: number; esMalo: (v?: string) => boolean } {
+  const esMalo = (v?: string) => typeof v === 'string' && v.startsWith('BELOW_AVERAGE');
+  const frecuencia = parseFloat(fila?.frequency ?? '0') || 0;
+  const problemas: string[] = [];
+  if (esMalo(fila?.quality_ranking)) problemas.push('calidad baja');
+  if (esMalo(fila?.engagement_rate_ranking)) problemas.push('interacción baja');
+  if (esMalo(fila?.conversion_rate_ranking)) problemas.push('conversión baja');
+  if (frecuencia >= 3) problemas.push(`fatiga (frecuencia ${frecuencia.toFixed(1)})`);
+  return { problemas, frecuencia, esMalo };
+}
+
+export const ESTADOS_PROBLEMA = ['DISAPPROVED', 'WITH_ISSUES', 'ERROR'];

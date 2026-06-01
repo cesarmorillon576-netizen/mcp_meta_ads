@@ -40,6 +40,7 @@ export interface MetaAction {
 
 export interface MetaInsight {
   campaign_name?: string;
+  objective?: string;
   impressions?: string;
   reach?: string;
   frequency?: string;

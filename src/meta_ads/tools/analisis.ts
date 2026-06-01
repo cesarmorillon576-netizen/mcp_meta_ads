@@ -32,7 +32,7 @@ export function registrarHerramientasAnalisis(server: McpServer) {
         const serie = filas.map((f: any) => {
           const r = mejorResultado(f);
           return { dia: f.date_start, gasto: parseFloat(f.spend ?? '0'), num: r?.num ?? 0, etiqueta: r?.etiqueta ?? 'resultados' };
-        });
+        }).sort((a: any, b: any) => String(a.dia).localeCompare(String(b.dia)));
         const etiqueta = serie.find((s: any) => s.num > 0)?.etiqueta ?? 'resultados';
         const lineas = [`Tendencia diaria — ${objeto_id ? `${objeto_tipo} ${objeto_id}` : `cuenta ${account_input}`} (${fInicio} → ${fFin})\n`];
         let caidaMax = { dia: '', baja: 0 };

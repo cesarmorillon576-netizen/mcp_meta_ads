@@ -1,7 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { credencialesOk, errorCredenciales, initApi, resolveAccount, cursorToArray, nextCursor, money, rangoPorDefecto, resolverObjeto } from '../helpers.js';
-import { ACCIONES } from '../types.js';
+import { credencialesOk, errorCredenciales, initApi, resolveAccount, cursorToArray, nextCursor, money, rangoPorDefecto, resolverObjeto, construirEmbudo, flagsCalidad } from '../helpers.js';
 
 const traducirRanking: Record<string, string> = {
   ABOVE_AVERAGE: 'Por encima del promedio ✅',
@@ -11,7 +10,6 @@ const traducirRanking: Record<string, string> = {
   BELOW_AVERAGE_35: 'Por debajo — peor 35% 🔴',
 };
 const rk = (v?: string) => (v && v !== 'UNKNOWN' ? traducirRanking[v] ?? v : 'Sin datos suficientes');
-const esMalo = (v?: string) => typeof v === 'string' && v.startsWith('BELOW_AVERAGE');
 
 export function registrarHerramientasDiagnostico(server: McpServer) {
   server.registerTool(
@@ -43,12 +41,7 @@ export function registrarHerramientasDiagnostico(server: McpServer) {
         const lineas = [`Diagnóstico de calidad — ${objeto_id ? `campaña ${objeto_id}` : `cuenta ${account_input}`} (${fInicio} → ${fFin})\n`];
         let mostrados = 0;
         for (const f of filas) {
-          const frecuencia = parseFloat(f.frequency ?? '0');
-          const problemas: string[] = [];
-          if (esMalo(f.quality_ranking)) problemas.push('calidad baja');
-          if (esMalo(f.engagement_rate_ranking)) problemas.push('interacción baja');
-          if (esMalo(f.conversion_rate_ranking)) problemas.push('conversión baja');
-          if (frecuencia >= 3) problemas.push(`fatiga (frecuencia ${frecuencia.toFixed(1)})`);
+          const { problemas, frecuencia } = flagsCalidad(f);
           if (solo_problemas && !problemas.length) continue;
           mostrados++;
           lineas.push(
@@ -135,23 +128,12 @@ export function registrarHerramientasDiagnostico(server: McpServer) {
         const accountId = await resolveAccount(account_input);
         initApi();
         const objeto = resolverObjeto(objeto_id, 'campana', accountId);
-        const cursor = await objeto.getInsights(['actions'], { time_range: JSON.stringify({ since: fInicio, until: fFin }) });
+        const cursor = await objeto.getInsights(['spend', 'actions'], { time_range: JSON.stringify({ since: fInicio, until: fFin }) });
         const fila = cursorToArray(cursor)[0];
-        const actions = fila?.actions ?? [];
-        const val = (t: string) => parseInt(actions.find((a: any) => a.action_type === t)?.value ?? '0', 10) || 0;
-
-        const pasos = [
-          { label: 'Contactos de mensajería', num: val(ACCIONES.CONTACTO_MENSAJERIA) },
-          { label: 'Conversaciones iniciadas', num: val(ACCIONES.CONVERSACION_INICIADA) },
-          { label: 'Primera respuesta', num: val(ACCIONES.PRIMER_RESPUESTA) },
-          { label: 'Profundidad 2 mensajes', num: val(ACCIONES.PROFUNDIDAD_2) },
-          { label: 'Profundidad 3 mensajes', num: val(ACCIONES.PROFUNDIDAD_3) },
-          { label: 'Profundidad 5 mensajes', num: val(ACCIONES.PROFUNDIDAD_5) },
-        ].filter((p) => p.num > 0);
-        const bloqueos = val(ACCIONES.BLOQUEO_MENSAJERIA);
+        const gasto = parseFloat(fila?.spend ?? '0') || 0;
+        const { pasos, base, cpaNominal, cpaReal, bloqueos } = construirEmbudo(fila?.actions, gasto);
 
         if (!pasos.length) return { content: [{ type: 'text', text: `Sin datos de mensajería para ${fInicio} → ${fFin}.` }] };
-        const base = pasos[0].num;
         const lineas = [`Embudo de conversación — ${objeto_id ? `campaña ${objeto_id}` : `cuenta ${account_input}`} (${fInicio} → ${fFin})\n`];
         for (let k = 0; k < pasos.length; k++) {
           const p = pasos[k];
@@ -163,7 +145,9 @@ export function registrarHerramientasDiagnostico(server: McpServer) {
           }
           lineas.push(`  ${p.label}: ${p.num} · ${pctBase}% del inicio${caida}`);
         }
-        if (bloqueos > 0) lineas.push(`\n🚫 Bloqueos: ${bloqueos}`);
+        if (cpaNominal != null) lineas.push(`\nCPA nominal (por conversación): $${money(cpaNominal)}`);
+        if (cpaReal != null) lineas.push(`CPA real (hasta 3 msgs, prospecto interesado): $${money(cpaReal)}`);
+        if (bloqueos > 0) lineas.push(`🚫 Bloqueos: ${bloqueos}`);
         return { content: [{ type: 'text', text: lineas.join('\n') }] };
       } catch (e: any) {
         return { content: [{ type: 'text', text: `Error en funnel de conversación: ${e.message}` }] };

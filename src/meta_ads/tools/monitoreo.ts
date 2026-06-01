@@ -1,22 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { credencialesOk, errorCredenciales, initApi, resolveAccount, cursorToArray, nextCursor, clasificarPorObjetivo, detectarResultado } from '../helpers.js';
-import { ACCIONES } from '../types.js';
+import { credencialesOk, errorCredenciales, initApi, resolveAccount, cursorToArray, nextCursor, money, evaluarResultadoCampana, ESTADOS_PROBLEMA } from '../helpers.js';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bizSdk = require('facebook-nodejs-business-sdk');
 const { AdAccount: FBAdAccount } = bizSdk;
 
 export function registrarHerramientasMonitoreo(server: McpServer) {
-  const sustantivoResultado = (tipo: string): string => {
-    if (tipo.includes('Mensajería')) return 'conversaciones';
-    if (tipo.includes('Leads')) return 'leads';
-    if (tipo.includes('Conversiones')) return 'compras/conversiones';
-    if (tipo.includes('Llamadas')) return 'llamadas';
-    if (tipo.includes('Tráfico')) return 'visitas a la página';
-    if (tipo.includes('Interacciones')) return 'interacciones';
-    return 'resultados';
-  };
-
   server.registerTool(
     'detectar_fugas_dinero',
     {
@@ -52,41 +41,20 @@ export function registrarHerramientasMonitoreo(server: McpServer) {
           const impresiones = parseInt(i.impressions ?? '0');
           const ctr = parseFloat(i.ctr ?? '0');
 
-          const tipoObjetivo = clasificarPorObjetivo(i.objective);
-
-          const conversaciones = parseInt(
-            (i.actions ?? []).find((a: any) => a.action_type === ACCIONES.CONVERSACION_INICIADA)?.value ?? '0', 10,
-          ) || 0;
-
-          const resObjetivo = detectarResultado(i, tipoObjetivo);
-          const numObjetivo = resObjetivo ? parseInt(resObjetivo.value ?? '0', 10) || 0 : 0;
-
-          let tipo: string;
-          let numResultado: number;
-          let etiquetaResultado: string;
-          if (conversaciones > 0) {
-            tipo = '💬 Mensajería / Conversaciones';
-            numResultado = conversaciones;
-            etiquetaResultado = 'conversaciones';
-          } else {
-            tipo = tipoObjetivo;
-            numResultado = numObjetivo;
-            etiquetaResultado = sustantivoResultado(tipoObjetivo);
-          }
-          const esEvaluable = conversaciones > 0 || ['Mensajería', 'Leads', 'Conversiones', 'Llamadas', 'Tráfico', 'Interacciones'].some((t) => tipo.includes(t));
+          const { tipo, numResultado, etiqueta: etiquetaResultado, evaluable: esEvaluable } = evaluarResultadoCampana(i);
 
           const problemas: string[] = [];
           if (impresiones === 0 && gasto === 0) {
             problemas.push('Sin entregas ni gasto — posible error de configuración o audiencia');
           } else {
             if (gasto > 0 && esEvaluable && numResultado === 0)
-              problemas.push(`Gasto $${gasto.toFixed(2)} sin lograr ${etiquetaResultado} (objetivo: ${tipo})`);
+              problemas.push(`Gasto $${money(gasto)} sin lograr ${etiquetaResultado} (objetivo: ${tipo})`);
             if (impresiones > 1000 && ctr < 0.5)
               problemas.push(`CTR muy bajo (${ctr.toFixed(2)}%) con ${impresiones.toLocaleString('es-MX')} impresiones`);
             if (cpa_max != null && numResultado > 0) {
               const cpa = gasto / numResultado;
               if (cpa > cpa_max)
-                problemas.push(`CPA elevado: $${cpa.toFixed(2)} por ${etiquetaResultado} (umbral $${cpa_max.toFixed(2)}; logró ${numResultado})`);
+                problemas.push(`CPA elevado: $${money(cpa)} por ${etiquetaResultado} (umbral $${money(cpa_max)}; logró ${numResultado})`);
             }
           }
           if (problemas.length)
@@ -124,7 +92,7 @@ export function registrarHerramientasMonitoreo(server: McpServer) {
           account.getAds(['id', 'name', 'status', 'effective_status', 'issues_info'], { limit: limite }),
         ]);
         const errores: string[] = [];
-        const estadosProblema = new Set(['DISAPPROVED', 'WITH_ISSUES', 'ERROR', 'CAMPAIGN_PAUSED']);
+        const estadosProblema = new Set(ESTADOS_PROBLEMA);
         for (const c of cursorToArray(campCursor)) {
           if (estadosProblema.has(c.effective_status))
             errores.push(`[CAMPAÑA] ${c.name} — Estado: ${c.effective_status}`);
