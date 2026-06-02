@@ -74,7 +74,7 @@
 - La **HIFU activa tiene CPM $142.36** vs $54 de P1 — **2.6x más cara de entregar**. Causa: segmentación geográfica de **7 pines puntuales** (Club de Golf Bellavista, Satélite, Echegaray, Zona Esmeralda, Lomas Verdes…) que **asfixia la entrega** y dispara el costo. A $211/conversación es insostenible.
 - *clara Tráfico* trajo **364 clics a $0.70** (tráfico barato) pero **solo 3 conversaciones**: el objetivo "Tráfico" atrae clics que no se convierten en mensajes. No aporta al negocio.
 - **5 campañas con 5 objetivos distintos en 30 días** (Clientes potenciales, Ventas, Interacción, Tráfico, HIFU) → fragmenta el aprendizaje de Meta y reparte mal el presupuesto.
-- **Creativos sanos:** CTR 1.1–2.5%, textos bien escritos, publicaciones de Instagram reales. El probsi, lema no está aquí.
+- **Creativos sanos:** CTR 1.1–2.5%, textos bien escritos, publicacilones de Instagram reales. El probsi, lema no está aquí.
 - **CTA inconsistente:** HIFU usa `WHATSAPP_MESSAGE` (directo a WhatsApp ✅); P1 y las demás usan `MESSAGE_PAGE` (va al inbox de la página, **más fricción** → contribuye a la Fuga #1).
 
 ---

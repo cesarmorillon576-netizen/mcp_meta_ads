@@ -7,6 +7,20 @@ const DIA = 86400000;
 const flt = (v: any) => parseFloat(v ?? '0') || 0;
 const int = (v: any) => parseInt(v ?? '0', 10) || 0;
 
+async function mapLimitado<T, R>(items: T[], limite: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const resultados: R[] = new Array(items.length);
+  let siguiente = 0;
+  const trabajador = async () => {
+    while (true) {
+      const i = siguiente++;
+      if (i >= items.length) return;
+      resultados[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limite, items.length) }, trabajador));
+  return resultados;
+}
+
 type Seccion = { titulo: string; lineas: string[]; alertas: string[] };
 
 async function seccResumen(cuenta: any, fInicio: string, fFin: string): Promise<Seccion> {
@@ -239,7 +253,7 @@ async function seccCampanas(cuenta: any, fInicio: string, fFin: string): Promise
 
   const cpms = conGasto.map((f: any) => flt(f.cpm)).filter((x: number) => x > 0).sort((a: number, b: number) => a - b);
   const cpmMed = cpms.length ? cpms[Math.floor(cpms.length / 2)] : 0;
-  const TOPE = 8;
+  const TOPE = 4;
   const objetivo = conGasto.slice(0, TOPE);
   const alertas: string[] = [];
   for (const f of objetivo) {
@@ -253,10 +267,10 @@ async function seccCampanas(cuenta: any, fInicio: string, fFin: string): Promise
       alertas.push(`🟠 "${f.campaign_name}": CPM $${money(cpm)} (${(cpm / cpmMed).toFixed(1)}x la mediana) — audiencia probablemente muy chica`);
   }
 
-  const reportes = await Promise.all(objetivo.map(async (f: any) => {
+  const reportes = await mapLimitado(objetivo, 2, async (f: any) => {
     try { return await generarReporteCompletoCampana(String(f.campaign_id), { timeRange: { since: fInicio, until: fFin }, incluirAnuncios: true }); }
     catch (e: any) { return `(no se pudo detallar "${f.campaign_name}": ${e.message})`; }
-  }));
+  });
   const lineas: string[] = [];
   reportes.forEach((r) => { lineas.push(r, ''); });
   if (conGasto.length > TOPE) lineas.push(`(+${conGasto.length - TOPE} campañas más con gasto, no detalladas por límite de tamaño)`);
