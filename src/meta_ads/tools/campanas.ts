@@ -44,7 +44,8 @@ export function registrarHerramientasCampanas(server: McpServer) {
         const resultados = [`Campañas en '${account_input}' (${campanas.length} mostradas):\n`];
         
         for (const c of campanas) {
-          const presupuesto = presupuestoStr(c.daily_budget, c.lifetime_budget);
+          const pStr = presupuestoStr(c.daily_budget, c.lifetime_budget);
+          const presupuesto = pStr === 'no definido' ? 'a nivel conjunto (CBO desactivado)' : pStr;
           const estado = traducirEstado(c.effective_status ?? c.status ?? '');
           const bidStrategy = c.bid_strategy ?? 'no especificada (a nivel conjunto)';
           const infoErrores = (c.effective_status === 'WITH_ISSUES' || c.effective_status === 'DISAPPROVED') 
