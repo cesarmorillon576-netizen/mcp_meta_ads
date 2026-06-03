@@ -5,27 +5,25 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { registrarTodasLasHerramientas } from './index.js';
+import { registrarHerramientasGoogle } from '../google_ads/server.js';
 import { findEnvPath } from './helpers.js';
 
-// En local carga el .env; en Railway/servidor las variables vienen inyectadas
-// por la plataforma y dotenv simplemente no encuentra archivo (no pasa nada).
 dotenv.config({ path: findEnvPath() });
 
-// Fabrica un McpServer nuevo con TODAS las tools ya registradas.
-// Se crea uno por sesion para que cada cliente tenga el suyo.
-function crearServidor(): McpServer {
+function crearServidorMeta(): McpServer {
   const server = new McpServer({ name: 'mcp-meta-ads', version: '1.0.0' });
   registrarTodasLasHerramientas(server);
   return server;
 }
 
-// ─── Seguridad: secreto compartido ─────────────────────────────────────────
-// Contraseña de la puerta del servidor. DISTINTA del META_ACCESS_TOKEN:
-//   META_ACCESS_TOKEN -> el server habla con Meta
-//   MCP_AUTH_TOKEN    -> los clientes (Claude) hablan con el server
+function crearServidorGoogle(): McpServer {
+  const server = new McpServer({ name: 'mcp-google-ads', version: '1.0.0' });
+  registrarHerramientasGoogle(server);
+  return server;
+}
+
 const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN ?? '';
 
-// Comparacion en tiempo constante (evita ataques de timing).
 function tokenValido(recibido: string): boolean {
   if (!AUTH_TOKEN || !recibido) return false;
   const a = Buffer.from(recibido);
@@ -34,10 +32,7 @@ function tokenValido(recibido: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-// Middleware: exige el secreto via header 'Authorization: Bearer <token>'
-// o via query '?token=<token>' (segun lo que permita el cliente).
 function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction): void {
-  // Fail-closed: sin secreto configurado, no se atiende a nadie.
   if (!AUTH_TOKEN) {
     res.status(500).json({
       jsonrpc: '2.0',
@@ -63,65 +58,62 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 const app = express();
 app.use(express.json());
 
-// Sesiones vivas: sessionId -> transporte. Como el proceso persiste (a diferencia
-// de Cloudflare Workers), la sesion se mantiene en memoria sin Durable Objects.
-const transports: Record<string, StreamableHTTPServerTransport> = {};
+function montarMcp(ruta: string, crearServidor: () => McpServer): void {
+  const transports: Record<string, StreamableHTTPServerTransport> = {};
 
-// Peticion principal del cliente MCP (Claude) hacia el servidor.
-app.post('/mcp', requireAuth, async (req, res) => {
-  const sessionId = req.headers['mcp-session-id'] as string | undefined;
-  let transport: StreamableHTTPServerTransport;
+  app.post(ruta, requireAuth, async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    let transport: StreamableHTTPServerTransport;
 
-  if (sessionId && transports[sessionId]) {
-    // Sesion ya existente: reutilizamos su transporte.
-    transport = transports[sessionId];
-  } else if (!sessionId && isInitializeRequest(req.body)) {
-    // Nueva sesion: solo se permite arrancar con un 'initialize'.
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (sid) => {
-        transports[sid] = transport;
-      },
-    });
+    if (sessionId && transports[sessionId]) {
+      transport = transports[sessionId];
+    } else if (!sessionId && isInitializeRequest(req.body)) {
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sid) => {
+          transports[sid] = transport;
+        },
+      });
 
-    transport.onclose = () => {
-      if (transport.sessionId) delete transports[transport.sessionId];
-    };
+      transport.onclose = () => {
+        if (transport.sessionId) delete transports[transport.sessionId];
+      };
 
-    const server = crearServidor();
-    await server.connect(transport);
-  } else {
-    // Ni sesion valida ni initialize -> peticion invalida.
-    res.status(400).json({
-      jsonrpc: '2.0',
-      error: { code: -32000, message: 'Bad Request: no se proporciono un session ID valido' },
-      id: null,
-    });
-    return;
-  }
+      const server = crearServidor();
+      await server.connect(transport);
+    } else {
+      res.status(400).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Bad Request: no se proporciono un session ID valido' },
+        id: null,
+      });
+      return;
+    }
 
-  await transport.handleRequest(req, res, req.body);
-});
+    await transport.handleRequest(req, res, req.body);
+  });
 
-// GET = canal SSE (mensajes servidor->cliente). DELETE = cierre de sesion.
-async function handleSessionRequest(req: express.Request, res: express.Response): Promise<void> {
-  const sessionId = req.headers['mcp-session-id'] as string | undefined;
-  if (!sessionId || !transports[sessionId]) {
-    res.status(400).send('Session ID invalido o ausente');
-    return;
-  }
-  await transports[sessionId].handleRequest(req, res);
+  const handleSessionRequest = async (req: express.Request, res: express.Response): Promise<void> => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId || !transports[sessionId]) {
+      res.status(400).send('Session ID invalido o ausente');
+      return;
+    }
+    await transports[sessionId].handleRequest(req, res);
+  };
+
+  app.get(ruta, requireAuth, handleSessionRequest);
+  app.delete(ruta, requireAuth, handleSessionRequest);
 }
 
-app.get('/mcp', requireAuth, handleSessionRequest);
-app.delete('/mcp', requireAuth, handleSessionRequest);
+montarMcp('/mcp', crearServidorMeta);
+montarMcp('/gads/mcp', crearServidorGoogle);
 
-// Healthcheck simple para la plataforma (Railway/Render).
 app.get('/', (_req, res) => {
-  res.status(200).send('MCP Meta Ads activo');
+  res.status(200).send('MCP activo  ->  POST /mcp (Meta) | POST /gads/mcp (Google)');
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => {
-  process.stderr.write(`MCP Meta Ads (HTTP) escuchando en :${PORT}  ->  POST /mcp\n`);
+app.listen(PORT, '0.0.0.0', () => {
+  process.stderr.write(`MCP (HTTP) escuchando en :${PORT}  ->  POST /mcp (Meta)  |  POST /gads/mcp (Google)\n`);
 });
