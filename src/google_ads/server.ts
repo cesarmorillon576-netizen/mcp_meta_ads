@@ -305,7 +305,8 @@ export function registrarHerramientasGoogle(server: McpServer): void {
       try {
         const results = await getCustomer(customer_id).query(
           `SELECT campaign.name,
-                  metrics.impressions, metrics.clicks, metrics.ctr,
+                  metrics.impressions, metrics.clicks
+                  , metrics.ctr,
                   metrics.cost_micros, metrics.conversions,
                   metrics.cost_per_conversion
            FROM campaign

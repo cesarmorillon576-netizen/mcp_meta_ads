@@ -15,9 +15,16 @@ function crearServidorMeta(): McpServer {
   registrarTodasLasHerramientas(server);
   return server;
 }
+// TODO: Esto es temporal pq no hay token de gugul
+const MENSAJE_WIP = '🚧 El conector de Google Ads está en desarrollo (WIP). Todavía no está disponible; vuelve pronto.';
 
 function crearServidorGoogle(): McpServer {
   const server = new McpServer({ name: 'mcp-google-ads', version: '1.0.0' });
+  const registrar = (server.registerTool as any).bind(server);
+  (server as any).registerTool = (nombre: string, config: any, _handler: any) =>
+    registrar(nombre, config, async () => ({
+      content: [{ type: 'text', text: MENSAJE_WIP }],
+    }));
   registrarHerramientasGoogle(server);
   return server;
 }
@@ -81,6 +88,13 @@ function montarMcp(ruta: string, crearServidor: () => McpServer): void {
 
       const server = crearServidor();
       await server.connect(transport);
+    } else if (sessionId) {
+      res.status(404).json({
+        jsonrpc: '2.0',
+        error: { code: -32001, message: 'Sesion no encontrada o expirada' },
+        id: req.body?.id ?? null,
+      });
+      return;
     } else {
       res.status(400).json({
         jsonrpc: '2.0',
@@ -96,7 +110,7 @@ function montarMcp(ruta: string, crearServidor: () => McpServer): void {
   const handleSessionRequest = async (req: express.Request, res: express.Response): Promise<void> => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId || !transports[sessionId]) {
-      res.status(400).send('Session ID invalido o ausente');
+      res.status(404).send('Sesion no encontrada o expirada');
       return;
     }
     await transports[sessionId].handleRequest(req, res);
