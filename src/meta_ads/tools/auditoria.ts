@@ -2,6 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { credencialesOk, errorCredenciales, initApi, resolveAccount, cursorToArray, mejorResultado, money, rangoPorDefecto, resolverObjeto, construirEmbudo, evaluarResultadoCampana, flagsCalidad, ESTADOS_PROBLEMA } from '../helpers.js';
 import { generarReporteCompletoCampana } from './reporte_completo.js';
+import { agregarHoras, paresSolapados } from './optimizacion.js';
+import { analizarSaludCuenta } from './informacion.js';
 
 const DIA = 86400000;
 const flt = (v: any) => parseFloat(v ?? '0') || 0;
@@ -243,6 +245,50 @@ async function seccSalud(cuenta: any, fInicio: string, fFin: string): Promise<Se
   return { titulo: '9. Salud de conjuntos', lineas, alertas };
 }
 
+async function seccSaludCuenta(cuenta: any): Promise<Seccion> {
+  const c: any = await cuenta.read(['account_status', 'disable_reason', 'currency', 'amount_spent', 'spend_cap', 'balance']);
+  const salud = analizarSaludCuenta(c);
+  const lineas = [`Estado: ${salud.estado}`, `Moneda: ${c.currency ?? 'N/A'}`];
+  if (salud.razonBloqueo) lineas.push(`Motivo de restricción: ${salud.razonBloqueo}`);
+  if (salud.topeMonto != null) lineas.push(`Tope de gasto: $${money(salud.topeMonto)} — usado ${salud.topePct}%`);
+  if (salud.saldo > 0) lineas.push(`Saldo pendiente por cobrar: $${money(salud.saldo)}`);
+  return { titulo: '0. Salud de la cuenta', lineas, alertas: salud.alertas };
+}
+
+async function seccSolapamiento(cuenta: any): Promise<Seccion> {
+  const conjuntos = cursorToArray(await cuenta.getAdSets(
+    ['id', 'name', 'campaign_id', 'effective_status', 'targeting'],
+    { limit: 100, effective_status: JSON.stringify(['ACTIVE']) },
+  )).filter((a: any) => a.effective_status === 'ACTIVE');
+  if (conjuntos.length < 2) return { titulo: '11. Solapamiento de audiencias', lineas: ['Menos de 2 conjuntos activos; sin solapamiento posible.'], alertas: [] };
+  const pares = paresSolapados(conjuntos);
+  if (!pares.length) return { titulo: '11. Solapamiento de audiencias', lineas: [`No se detectó solapamiento evidente entre los ${conjuntos.length} conjuntos activos.`], alertas: [] };
+  const TOPE = 8;
+  const lineas = pares.slice(0, TOPE).map((p) => `⚠️ "${p.a}" ↔ "${p.b}"${p.mismaCampana ? ' (misma campaña)' : ''} — comparten ${p.geoTxt}${p.intTxt}`);
+  if (pares.length > TOPE) lineas.push(`(+${pares.length - TOPE} par(es) más con solapamiento)`);
+  const alertas = [`🟠 ${pares.length} par(es) de conjuntos activos se solapan (canibalización: suben tu propio CPM)`];
+  return { titulo: '11. Solapamiento de audiencias', lineas, alertas };
+}
+
+async function seccHorarios(cuenta: any, fInicio: string, fFin: string): Promise<Seccion> {
+  const filas = cursorToArray(await cuenta.getInsights(
+    ['spend', 'actions', 'clicks'],
+    { time_range: JSON.stringify({ since: fInicio, until: fFin }), breakdowns: 'hourly_stats_aggregated_by_advertiser_time_zone', limit: 500 },
+  ));
+  if (!filas.length) return { titulo: '12. Day-parting (horarios)', lineas: ['Sin datos horarios en el periodo.'], alertas: [] };
+  const { etiquetaRes, totalRes, totalSpend, totalFuga, ventana, pctVentana } = agregarHoras(filas);
+  const lineas: string[] = [];
+  const alertas: string[] = [];
+  if (totalRes > 0) lineas.push(`Ventana caliente: el ${pctVentana}% de ${etiquetaRes} se concentra en → ${ventana.map((h) => `${String(h).padStart(2, '0')}h`).join(', ')}`);
+  if (totalFuga > 0 && totalSpend > 0) {
+    const pctFuga = Math.round((totalFuga / totalSpend) * 100);
+    lineas.push(`Gasto en horas sin ningún resultado: $${money(totalFuga)} (${pctFuga}% del total)`);
+    if (pctFuga >= 15) alertas.push(`🟠 $${money(totalFuga)} (${pctFuga}%) se gasta en horas que no generan ${etiquetaRes} — considera programación horaria`);
+  }
+  if (!lineas.length) lineas.push('Sin concentración horaria relevante.');
+  return { titulo: '12. Day-parting (horarios)', lineas, alertas };
+}
+
 async function seccCampanas(cuenta: any, fInicio: string, fFin: string): Promise<Seccion> {
   const filas = cursorToArray(await cuenta.getInsights(
     ['campaign_id', 'campaign_name', 'spend', 'cpm', 'impressions', 'inline_link_clicks', 'actions'],
@@ -301,6 +347,7 @@ export function registrarHerramientasAuditoria(server: McpServer) {
           try { return await fn; } catch (e: any) { return { titulo, lineas: [`(no disponible: ${e.message})`], alertas: [] }; }
         };
         const tareas: Promise<Seccion>[] = [
+          safe(seccSaludCuenta(cuenta), '0. Salud de la cuenta'),
           safe(seccResumen(cuenta, fInicio, fFin), '1. Resumen ejecutivo'),
           safe(seccComparacion(cuenta, fInicio, fFin), '2. Comparación con el periodo anterior'),
           safe(seccFunnel(cuenta, fInicio, fFin), '3. Embudo de conversación (WhatsApp)'),
@@ -314,6 +361,8 @@ export function registrarHerramientasAuditoria(server: McpServer) {
             safe(seccErrores(cuenta), '8. Errores y rechazos'),
             safe(seccSalud(cuenta, fInicio, fFin), '9. Salud de conjuntos'),
             safe(seccCampanas(cuenta, fInicio, fFin), '10. Detalle exhaustivo por campaña'),
+            safe(seccSolapamiento(cuenta), '11. Solapamiento de audiencias'),
+            safe(seccHorarios(cuenta, fInicio, fFin), '12. Day-parting (horarios)'),
           );
         }
         const secciones = await Promise.all(tareas);

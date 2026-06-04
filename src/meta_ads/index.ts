@@ -15,6 +15,8 @@ import { registrarHerramientasAnalisis } from './tools/analisis.js';
 import { registrarHerramientasDiagnostico } from './tools/diagnostico.js';
 import { registrarHerramientasAuditoria } from './tools/auditoria.js';
 import { registrarToolsSegmentacionAcciones } from './tools/segmentacion_acciones.js';
+import { registrarHerramientasInformacion } from './tools/informacion.js';
+import { registrarHerramientasOptimizacion } from './tools/optimizacion.js';
 
 function conSanitizacion(server: McpServer): McpServer {
   const registrarOriginal = (server.registerTool as any).bind(server);
@@ -50,4 +52,6 @@ export function registrarTodasLasHerramientas(server: McpServer) {
   registrarHerramientasAuditoria(s);
   registrarToolsSegmentacionAcciones(s);
   registrarToolsCreacion(s);
+  registrarHerramientasInformacion(s);
+  registrarHerramientasOptimizacion(s);
 }
