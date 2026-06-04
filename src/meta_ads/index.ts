@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sanitizarTexto } from './helpers.js';
+import { registrarToolsCreacion} from './tools/creacion.js';
 import { registrarHerramientasCuentas } from './tools/cuentas.js';
 import { registrarHerramientasCampanas } from './tools/campanas.js';
 import { registrarHerramientasAnuncios } from './tools/anuncios.js';
@@ -13,6 +14,7 @@ import { registrarHerramientasMonitoreo } from './tools/monitoreo.js';
 import { registrarHerramientasAnalisis } from './tools/analisis.js';
 import { registrarHerramientasDiagnostico } from './tools/diagnostico.js';
 import { registrarHerramientasAuditoria } from './tools/auditoria.js';
+import { registrarToolsSegmentacionAcciones } from './tools/segmentacion_acciones.js';
 
 function conSanitizacion(server: McpServer): McpServer {
   const registrarOriginal = (server.registerTool as any).bind(server);
@@ -46,4 +48,6 @@ export function registrarTodasLasHerramientas(server: McpServer) {
   registrarHerramientasAnalisis(s);
   registrarHerramientasDiagnostico(s);
   registrarHerramientasAuditoria(s);
+  registrarToolsSegmentacionAcciones(s);
+  registrarToolsCreacion(s);
 }

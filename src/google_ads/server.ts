@@ -3,6 +3,7 @@ import { GoogleAdsApi, enums, ResourceNames } from 'google-ads-api';
 import { z } from 'zod';
 
 function credencialesOk(): boolean {
+  
   return !!(
     process.env.GOOGLE_ADS_DEVELOPER_TOKEN &&
     process.env.GOOGLE_ADS_CLIENT_ID &&
