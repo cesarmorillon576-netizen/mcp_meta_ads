@@ -69,19 +69,20 @@ export function registrarToolsSegmentacionAcciones(server: McpServer) {
         {
             description: 'Busca intereses/comportamientos en el catálogo de Meta por palabra clave. Devuelve los IDs que luego se usan en modificar_segmentacion_conjunto.',
             inputSchema: {
+                account_input: z.string().describe('ID o nombre de la cuenta publicitaria'),
                 consulta: z.string().describe('Palabras a buscar, ej: "odontologia", "diabetes"'),
                 limite: z.number().int().default(15)
             }
         },
-        async ({ consulta, limite }) => {
+        async ({ account_input, consulta, limite }) => {
             if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] }
             try {
                 initApi();
-                const cursor = await (bizSdk.TargetingSearch as any).search({
-                    q: consulta,
-                    type: 'adinterest',
-                    limit: limite
-                });
+                const accountId = await resolveAccount(account_input);
+                const cursor = await new FBAdAccount(accountId).getTargetingSearch(
+                    ['id', 'name', 'audience_size_lower_bound', 'audience_size_upper_bound', 'path', 'type'],
+                    { q: consulta, type: 'adinterest', limit: limite }
+                );
 
                 const items = cursorToArray(cursor);
                 if (!items?.length) return { content: [{ type: 'text', text: `Sin resultados para "${consulta}".` }] }
