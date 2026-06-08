@@ -13,14 +13,14 @@
     "package:all": "npm run package:meta && npm run package:google"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^16.4.7",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
     "@yao-pkg/pkg": "^5.12.1",
-    "esbuild": "^0.24.2",
+    "esbuild": "^0.28.0",
     "typescript": "^5.7.2"
   }
 }

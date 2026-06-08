@@ -5,16 +5,17 @@ import {API_BASE} from "../builders";
 import { credencialesOk } from "../helper";
 import {errorCredenciales} from "../helper";
 import { z } from 'zod';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
 
 interface range{
     since:String,
     until:string
 }
-
-getServer().registerTool(
-    'hourly_interactions_Ad_anuncio',
+export function ToolRegister(server:McpServer){
+server.registerTool(
+    'interacion_horas_por_anuncio',
     {
-        description:'utilizar esta tool cuando se requiera obtener la dispercion de trafico divididas en horas',
+        description:'utilizar esta herramienta cuando se quiera saber las interaciones con el anuncio compaginadas por hora con respecto a la zona horaria del anuncio. complementar con interacion_horas_por_audiencia',
         inputSchema:{
             add_id: z.string(),
             time_range: z.object({
@@ -30,15 +31,148 @@ getServer().registerTool(
                 since:time_range.since,
                 until:time_range.until
             }),
+            fields:'clicks,impressions,spend,reach,frequency',
             breakdowns:'hourly_stats_aggregated_by_advertiser_time_zone'
         }
-        const data = await  getApiClient().fetchData(`${add_id}/insights`,params)
+        try{
+          const data = await  getApiClient().fetchData(`${add_id}/insights`,params)
         const json = await data.json();
-        return {content:[{type:'text',text:JSON.stringify(json)}]};
+        if(!json?.data){
+          return {content:[{type:'text',text:'no data available'}]}
+        }
+        if(!json?.data?.[0]){
+          return {content:[{type:'text',text:'no data available'}]}
+        }
+        let response:string = ''
+        response = `fecha de inicio: ${json.data[0].date_start}| fecha de cierre: ${json.data[0].date_stop} \n`;
+        response+= 'Informacion de impresiones por rango de hora \n'
+        json.data.forEach((data:any) => {
+          response +=`impresiones: ${data.impressions} | gasto: ${data.spend} |clicks: ${data.clicks} |audiencia captada: ${data.reach} | frecencia de vistas: ${data.frequency} | rango de horas ${data.hourly_stats_aggregated_by_advertiser_time_zone} \n`
+        });
+        return {content:[{type:'text',text:response}]};
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
+    'interacion_horas_por_audiencia',
+    {
+        description:'utilizar esta herramienta cuando se quiera saber las interaciones con el anuncio compaginadas por hora con respecto a la audiencia. complementar con interacion_horas_por_anuncio',
+        inputSchema:{
+            add_id: z.string(),
+            time_range: z.object({
+                since:z.string(),
+                until:z.string()
+            }).describe('YYYY-MM-DD')
+        }
+    },
+    async ({add_id,time_range})=>{
+        const params: Record<string,string|any> = {
+            level:'ad',
+            time_range:JSON.stringify({
+                since:time_range.since,
+                until:time_range.until
+            }),
+            fields:'clicks,impressions,spend,reach,frequency',
+            breakdowns:'hourly_stats_aggregated_by_audience_time_zone'
+        }
+        try{
+          const data = await  getApiClient().fetchData(`${add_id}/insights`,params)
+        const json = await data.json();
+        if(!json?.data){
+          return {content:[{type:'text',text:'no data available'}]}
+        }
+        if(!json?.data?.[0]){
+          return {content:[{type:'text',text:'no data available'}]}
+        }
+        let response:string = ''
+        response = ` fecha de inicio: ${json.data[0].date_start}| fecha de cierre: ${json.data[0].date_stop} \n`;
+        response+= 'Informacion de impresiones por rango de hora \n'
+        json.data.forEach((data:any) => {
+          response +=`impresiones: ${data.impressions} | gasto: ${data.spend}|clicks: ${data.clicks} |audiencia captada: ${data.reach} | frecencia de vistas: ${data.frequency}  | rango de horas ${data.hourly_stats_aggregated_by_audience_time_zone} \n`
+        });
+        return {content:[{type:'text',text:response}]};
+        }catch(e:any){
+          return {content:[{type:'text',text:JSON.stringify(e.message)}]}
+        }
+    }
+)
+
+server.registerTool(
+    'conversaciones_por_hora_add',
+    {
+        description:'utilizar esta herramienta cuando se quiera saber las conversaciones por anuncio por hora.',
+        inputSchema:{
+            add_id: z.string(),
+            time_range: z.object({
+                since:z.string(),
+                until:z.string()
+            }).describe('YYYY-MM-DD')
+        }
+    },
+    async ({add_id,time_range})=>{
+        const params: Record<string,string|any> = {
+            level:'ad',
+            time_range:JSON.stringify({
+                since:time_range.since,
+                until:time_range.until
+            }),
+            fields:'actions',
+            breakdowns:'hourly_stats_aggregated_by_audience_time_zone'
+   
+        }
+        try{
+          const data = await  getApiClient().fetchData(`${add_id}/insights`,params)
+        const json = await data.json();
+        if(!json?.data){
+          return {content:[{type:'text',text:'no data available'}]}
+        }
+        if(!json?.data?.[0]){
+          return {content:[{type:'text',text:'no data available'}]}
+        }
+
+        let response:string = ''
+        response = ` fecha de inicio: ${json.data[0].date_start}| fecha de cierre: ${json.data[0].date_stop} \n`;
+        response+= 'Informacion de conversaciones por rango de hora \n'
+        json.data.forEach((data:any) => {
+          if(data.actions){
+            let hasConversations = false;
+            let hasResponses = false;
+              data.actions.forEach((action:any) => {
+                if(action.action_type == 'link_click'){
+                  response += `Click al link: ${action.value}`
+                }
+                if(action.action_type == 'onsite_conversion.total_messaging_connection'){
+                  response += ` conversaciones: valor: ${action.value}`
+                  hasConversations = true;
+                }
+                if(action.action_type == 'onsite_conversion.messaging_first_reply'){
+                  response +=`respuestas: valor: ${action.value}`;
+                  hasResponses = true;
+                }
+              });
+              if(!hasConversations){
+                  response +=`conversaciones:0`
+              }
+              if (!hasResponses){
+                response+= 'respuestas: 0';
+              }
+             response +=`rango de horas ${data.hourly_stats_aggregated_by_audience_time_zone} \n`
+          }else{
+            response +=`no se detectaron convesaciones ni clicks al link en este ragno de fecha: ${data.hourly_stats_aggregated_by_audience_time_zone} \n`
+          }
+          
+        });
+        return {content:[{type:'text',text:response}]};
+        }catch(e:any){
+          return {content:[{type:'text',text:JSON.stringify(e?.message)}]}
+        }
+    }
+)
+
+server.registerTool(
     'obtener_conversaciones_fuente_anuncio',
     {
         description:'utilizar esta tool cuando se requiera obtener las fuentes de las conversaciones whatsapp/instagram/facebook',
@@ -59,13 +193,17 @@ getServer().registerTool(
             }),
             breakdowns:'publisher_platform'
         }
-        const data = await  getApiClient().fetchData(`${add_id}/insights`,params)
+        try{
+          const data = await  getApiClient().fetchData(`${add_id}/insights`,params)
         const json = await data.json();
         return {content:[{type:'text',text:JSON.stringify(json)}]};
+        }catch(e:any){
+          return {content:[{type:'text',text:JSON.stringify(e.message)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
     'obtener_resultados_por_edad',
     {
         description:'utilizar esta tool cuando necesites obtener los resultados de un ad por la edad',
@@ -85,13 +223,18 @@ getServer().registerTool(
                 until:time_range.until
             })
         }
+        
+        try{
         const data = await getApiClient().fetchData(`${ad_id}/insights`,params)
         const json = await data.json()
         return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e:any){
+          return {content:[{type:'text',text:JSON.stringify(e.message)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
     'obtener_resultados_por_region_anuncio',
     {
         description:'utilizar esta tool cuando necesites obtener los resultados de un ad por la region',
@@ -111,13 +254,18 @@ getServer().registerTool(
                 until:time_range.until
             })
         }
-        const data = await getApiClient().fetchData(`${ad_id}/insights`,params)
+       
+        try{
+ const data = await getApiClient().fetchData(`${ad_id}/insights`,params)
         const json = await data.json()
         return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
     'obtener_resultados_por_genero_anuncio',
     {
         description:'utilizar esta tool cuando necesites obtener los resultados de un ad por el genero',
@@ -137,13 +285,18 @@ getServer().registerTool(
                 until:time_range.until
             })
         }
-        const data = await getApiClient().fetchData(`${ad_id}/insights`,params)
+       
+        try{
+ const data = await getApiClient().fetchData(`${ad_id}/insights`,params)
         const json = await data.json()
         return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
     'obtener_informacion_general_anuncio',
     {
         description:'obtiene informacion como id,nombre,effective_status,addset.id que es al conjunto que pertenece, utilizar esta tool cuando se quiera iniciar con la investigacion inicial de un anuncio de una campaña especifica',
@@ -155,14 +308,19 @@ getServer().registerTool(
         const params: Record<string,string> = {
             fields:'id,name,effective_status,adset'
         }
-        const data = await  getApiClient().fetchData(`${ad_id}`,params)
+       
+        try{
+ const data = await  getApiClient().fetchData(`${ad_id}`,params)
         const json = await data.json();
         return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
 
 
-getServer().registerTool(
+server.registerTool(
     'obtener_metadata_post',
     {
         description:'obtener el titulo,cuerpo,nombre del reel, la url de la metadata para analisis (administrativo), usar esta tool para cuando se requiera sacar meta data del post (informacion de la imagen/video, etc',
@@ -174,13 +332,18 @@ getServer().registerTool(
         const params : Record<string,string> = {
          fields:'id,name,title,body,image_url'
         }
-        const data = await  getApiClient().fetchData(`${add_id}/adcreatives`,params)
+        
+           try{
+const data = await  getApiClient().fetchData(`${add_id}/adcreatives`,params)
         const json = await data.json();
            return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
     'atribucion_medicion_anuncio',
     {
         description:'Acciones y eventos que Meta puede atribuir a este anuncio',
@@ -192,13 +355,18 @@ getServer().registerTool(
         const params : Record<string,string> = {
          fields:'id,tracking_specs,conversion_domain,creative'
         }
-        const data = await  getApiClient().fetchData(`${add_id}`,params)
+       
+           try{
+ const data = await  getApiClient().fetchData(`${add_id}`,params)
         const json = await data.json();
            return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
     'obtener_objetivo_adset',
     {
         description:'utilizar esta tool cuando se requiera saber el objetivo real de una campana, necesitas el id_adset por lo tanto pivotear hasta encontrar el id del adset',
@@ -210,13 +378,18 @@ getServer().registerTool(
         const params:Record<string,string|any> = {
             fields:'optimization_goal,billing_event,bid_strategy,targeting,destination_type'
         }
-        const data = await  getApiClient().fetchData(`${adset_id}`,params)
+        
+        try{
+const data = await  getApiClient().fetchData(`${adset_id}`,params)
         const json = await data.json();
         return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
 
-getServer().registerTool(
+server.registerTool(
     'obtener_fase_aprendizaje_conjunto',
     {
         description:'obtiene el estado de aprendizaje de un ad set.',
@@ -226,15 +399,20 @@ getServer().registerTool(
     },
     async ({addset_id})=>{
         const params : Record<string,string> = {
-         fields:'name,delivery_info,id'
+         fields:'name,learning_stage_info,effective_status,id'
         }
-        const data = await  getApiClient().fetchData(`${addset_id}`,params)
-        const json = await data.json();
+        
+           try{
+          const data = await  getApiClient().fetchData(`${addset_id}`,params)
+          const json = await data.json();
            return {content:[{type:'text',text:JSON.stringify(json)}]}
+        }catch(e){
+          return {content:[{type:'text',text:JSON.stringify(e)}]}
+        }
     }
 )
-
-getServer().registerTool(
+/*
+server.registerTool(
   'obtener_anuncios',
   {
     description: 'Obtener anuncios (Ads) de una cuenta, campaña o conjunto específico. Parámetros: account_input, adset_id (opcional), campaign_id (opcional), limite (default 20), pagina_cursor.',
@@ -287,9 +465,9 @@ getServer().registerTool(
       return { content: [{ type: 'text', text: `Error al consultar los anuncios: ${e.message}` }] };
     }
   },
-);
+);*/
 
-export async function metaGet(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
+ async function metaGet(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
   const qs = new URLSearchParams({ access_token: getToken() });
   for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
   const resp = await fetch(`${API_BASE}${endpoint}?${qs}`);
@@ -297,14 +475,14 @@ export async function metaGet(endpoint: string, params: Record<string, unknown> 
 }
 
 
-export async function metaPost(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
+ async function metaPost(endpoint: string, params: Record<string, unknown> = {}): Promise<any> {
   const qs = new URLSearchParams({ access_token: getToken() });
   for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
   const resp = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', body: qs });
   return resp.json();
 }
 
-export function traducirEstado(status: string): string {
+ function traducirEstado(status: string): string {
   const estados: Record<string, string> = {
     ACTIVE: '🟢 Activa',
     PAUSED: '⏸ Pausada',
@@ -322,7 +500,7 @@ export function traducirEstado(status: string): string {
   return estados[status] ?? `Estatus: ${status}`;
 }
 
-export async function resolveAccount(accountInput: string): Promise<string> {
+ async function resolveAccount(accountInput: string): Promise<string> {
   const input = accountInput.trim();
   if (/^\d+$/.test(input)) return `act_${input}`;
   if (input.toLowerCase().startsWith('act_')) return input;
@@ -337,13 +515,13 @@ export async function resolveAccount(accountInput: string): Promise<string> {
   return `act_${input}`;
 }
 
-export function presupuestoStr(daily?: string, lifetime?: string): string {
+ function presupuestoStr(daily?: string, lifetime?: string): string {
   if (daily) return `$${(parseInt(daily) / 100).toFixed(2)}/día`;
   if (lifetime) return `$${(parseInt(lifetime) / 100).toFixed(2)} total`;
   return 'no definido';
 }
 
-export function nextCursor(data: any): string | null {
+function nextCursor(data: any): string | null {
   return data?.paging?.cursors?.after ?? (data?.paging?.next ? (data.paging.cursors?.after ?? null) : null);
 }
 
@@ -351,7 +529,7 @@ export function nextCursor(data: any): string | null {
 
 // ─── CONJUNTOS DE ANUNCIOS ────────────────────────────────────────────────────
 
-getServer().registerTool(
+server.registerTool(
   'obtener_conjuntos',
   {
     description: 'Obtener conjuntos de anuncios (Ad Sets) de una cuenta o campaña específica. Parámetros: account_input, campaign_id (opcional), limite (default 20), pagina_cursor.',
@@ -410,7 +588,7 @@ getServer().registerTool(
 
 // ─── SEGMENTACIÓN ─────────────────────────────────────────────────────────────
 
-getServer().registerTool(
+server.registerTool(
   'obtener_segmentacion_conjunto',
   {
     description: 'Obtiene la segmentación completa (Targeting) de un Ad Set: geografía, demografía, intereses, comportamientos, exclusiones y públicos personalizados.',
@@ -549,7 +727,7 @@ getServer().registerTool(
 
 // ─── GESTIÓN DE ESTADOS ───────────────────────────────────────────────────────
 
-getServer().registerTool(
+server.registerTool(
   'cambiar_estado_campana',
   {
     description: "Encender o apagar una campaña. Parámetros: campaign_id, accion ('encender' o 'apagar').",
@@ -573,7 +751,7 @@ getServer().registerTool(
   },
 );
 
-getServer().registerTool(
+server.registerTool(
   'cambiar_estado_conjunto',
   {
     description: "Encender o apagar un conjunto de anuncios (Ad Set). Parámetros: adset_id, accion ('encender' o 'apagar').",
@@ -596,7 +774,7 @@ getServer().registerTool(
   },
 );
 
-getServer().registerTool(
+server.registerTool(
   'cambiar_estado_anuncio',
   {
     description: "Encender o apagar un anuncio individual. Parámetros: ad_id, accion ('encender' o 'apagar').",
@@ -621,7 +799,7 @@ getServer().registerTool(
 
 // ─── PRESUPUESTOS ─────────────────────────────────────────────────────────────
 
-getServer().registerTool(
+server.registerTool(
   'modificar_presupuesto_campana',
   {
     description: "Ajusta el presupuesto de una campaña. Parámetros: campaign_id, nuevo_presupuesto (monto en moneda local, ej: 1500.00), tipo_presupuesto ('diario' o 'total').",
@@ -647,7 +825,7 @@ getServer().registerTool(
   },
 );
 
-getServer().registerTool(
+server.registerTool(
   'modificar_presupuesto_conjunto',
   {
     description: "Ajusta el presupuesto de un Ad Set (útil en cuentas con ABO). Parámetros: adset_id, nuevo_presupuesto, tipo_presupuesto ('diario' o 'total').",
@@ -695,7 +873,7 @@ function formatInsightRow(i: any, indent = ''): string {
   );
 }
 
-getServer().registerTool(
+server.registerTool(
   'reporte_rendimiento',
   {
     description: 'Obtener métricas clave (KPIs) por campaña para un rango de fechas. Métricas: impresiones, clics, CTR, gasto, CPM, CPC, conversiones, CPA, ROAS.',
@@ -733,7 +911,7 @@ getServer().registerTool(
   },
 );
 
-getServer().registerTool(
+server.registerTool(
   'reporte_rendimiento_todas',
   {
     description: 'Obtener métricas clave (KPIs) de todas las cuentas accesibles para un rango de fechas.',
@@ -773,7 +951,7 @@ getServer().registerTool(
   },
 );
 
-getServer().registerTool(
+server.registerTool(
   'reporte_rendimiento_desglosado',
   {
     description: "Desglosa resultados por segmento. Parámetros: account_input, fecha_inicio, fecha_fin, desglose ('age', 'gender' o 'publisher_platform'), limite (default 30), pagina_cursor.",
@@ -830,7 +1008,7 @@ getServer().registerTool(
 
 // ─── CREATIVOS ────────────────────────────────────────────────────────────────
 
-getServer().registerTool(
+server.registerTool(
   'obtener_creativos_anuncio',
   {
     description: 'Audita los textos y contenidos de los creativos de la cuenta. Parámetros: account_input, limite (default 15), pagina_cursor.',
@@ -869,7 +1047,7 @@ getServer().registerTool(
 
 // ─── MONITOREO ────────────────────────────────────────────────────────────────
 
-getServer().registerTool(
+server.registerTool(
   'detectar_fugas_dinero',
   {
     description: 'Simpre pregunta el rango de fecha.Analiza la cuenta en busca de campañas que gastan sin resultados: sin conversiones, CTR bajo, CPA elevado, sin entregas, si consideras que la informacion que te entrega no es suficiente, puedes utilizar la todo_tool',
@@ -896,9 +1074,6 @@ getServer().registerTool(
       const data3 = await getApiClient().fetchData(`/${accountId}/insights`, params);
       const data = await metaGet(`/${accountId}/insights`, params);
       return {content:[{type:'text',text:JSON.stringify(data)}]}
-     /* const fetch2 = await fetch('https://graph.facebook.com/v25.0/act_3691774377538821/insights?fields=actions&access_token=EAA5pd0elBfgBRmqTAs7yJLeGS29NqAxbfxia5eVSC8Vh2d51YdgL0hj8ftPvSNetvSAoNyphe2DxExRiNIHlkXDnbDN1P6ZAJ3XG82zx4LxcGjIcUMquIJFOcw7fvMVAgwZAcGvpeXorBQ083cxbDjWRLH0GNxr9LMQffrB6KsvEqK3vC8lKfLLLTCepO57wZDZD')
-      const data3 = await fetch2.json()
-      return {content:[{type:'text',text:JSON.stringify(data3)}]}*/
       const insights = data.data as any[];
       const alertas: string[] = [];
       for (const i of insights) {
@@ -935,7 +1110,7 @@ getServer().registerTool(
   },
 );
 
-getServer().registerTool(
+server.registerTool(
   'monitorear_errores_cuenta',
   {
     description: 'Revisa campañas, conjuntos y anuncios con errores, rechazos o problemas de entrega.',
@@ -984,7 +1159,7 @@ getServer().registerTool(
   },
 );
 
-getServer().registerTool(
+server.registerTool(
   'todo_tool',
   {
     description:'Utiliza esta tool cuando el resto de las tools no cumplan con los requerimientos que se pidan, se puede consultar directamente a la api de meta con dos argumentos, el endpoint que ira despues de v25.0 y los parametros que se le quieran pasar, esta tool es un comodin para cualquier consulta a la api de meta que no este cubierta por las otras tools, se recomienda usarla con cuidado y solo cuando sea necesario.',
@@ -994,8 +1169,239 @@ getServer().registerTool(
     }
   },
   async ({endpoint, parametros})=>{
+    try{
     const data = await fetch(`${API_BASE}/${endpoint}?${new URLSearchParams({...parametros,access_token:getToken()})}` )
     const json = await data.json()
-    return {content:[{type:'text', text:JSON.stringify(json)}]}
+    return {content:[{type:'text', text:JSON.stringify(json)}]}}
+    catch(e){
+        return {content:[{type:'text',text:JSON.stringify(e)}]}
+    }
   }
 )
+
+server.registerTool(
+    'obtener_informacion_general_campana',
+    {
+        description:'obtiene informacion como id,nombre,effective_status, */utilizar esta tool cuando se quiera iniciar con la investigacion inicial de una camapaña, el estado actual',
+        inputSchema:{
+            campaign_id:z.string()
+        }
+    },
+    async ({campaign_id})=>{
+        const params: Record<string,string> = {
+            fields:'id,name,effective_status'
+        }
+        const data = await  getApiClient().fetchData(`${campaign_id}`,params)
+        const json = await data.json();
+        return {content:[{type:'text',text:JSON.stringify(json)}]}
+    }
+)
+
+
+server.registerTool(
+  'obtener_campanas',
+  {
+    description: 'Obtener campañas de una cuenta publicitaria con estado y presupuesto. Parámetros: account_input (ID o nombre), limite (default 20), pagina_cursor (cursor de página anterior).',
+    inputSchema: {
+      account_input: z.string().describe('ID numérico, act_XXX o nombre de la cuenta publicitaria'),
+      limite: z.number().int().default(100).describe('Campañas por página'),
+      pagina_cursor: z.string().default('').describe('Cursor devuelto en respuesta anterior para ver siguiente página'),
+    },
+  },
+  async ({ account_input, limite, pagina_cursor }) => {
+    if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+    try {
+      const accountId = await resolveAccount(account_input);
+      const params: Record<string, unknown> = {
+        fields: 'id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,objective',
+        limit: limite,
+      };
+      if (pagina_cursor) params['after'] = pagina_cursor;
+      const data = await metaGet(`/${accountId}/campaigns`, params);
+      const campanas = data.data as any[];
+      if (!campanas?.length)
+        return { content: [{ type: 'text', text: `No se encontraron campañas para la cuenta '${account_input}'.` }] };
+      const resultados = [`Campañas en '${account_input}' (${campanas.length} mostradas):\n`];
+      for (const c of campanas) {
+        const presupuesto = presupuestoStr(c.daily_budget, c.lifetime_budget);
+        const estado = traducirEstado(c.effective_status ?? c.status ?? '');
+        resultados.push(
+          `- ${c.name} (ID: ${c.id})\n` +
+          `  Estado: ${estado} | Objetivo: ${c.objective ?? 'N/A'}\n` +
+          `  Presupuesto: ${presupuesto}\n` +
+          `  Inicio: ${c.start_time ?? 'N/A'} | Fin: ${c.stop_time ?? 'sin fecha fin'}`,
+        );
+      }
+      const nc = nextCursor(data);
+      if (nc) resultados.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
+      return { content: [{ type: 'text', text: resultados.join('\n\n') }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `Error al consultar la API de Meta: ${e.message}` }] };
+    }
+  },
+);
+
+server.registerTool(
+  'obtener_campanas_activas',
+  {
+    description: 'Obtener campañas ACTIVE de una cuenta publicitaria. Parámetros: account_input, limite (default 20), pagina_cursor.',
+    inputSchema: {
+      account_input: z.string().describe('ID numérico, act_XXX o nombre de la cuenta'),
+      limite: z.number().int().default(20),
+      pagina_cursor: z.string().default(''),
+    },
+  },
+  async ({ account_input, limite, pagina_cursor }) => {
+    if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+    try {
+      const accountId = await resolveAccount(account_input);
+      const params: Record<string, unknown> = {
+        fields: 'id,name,status,daily_budget,objective',
+        effective_status: JSON.stringify(['ACTIVE']),
+        limit: limite,
+      };
+      if (pagina_cursor) params['after'] = pagina_cursor;
+      const data = await metaGet(`/${accountId}/campaigns`, params);
+      const campanas = data.data as any[];
+      if (!campanas?.length)
+        return { content: [{ type: 'text', text: `No hay campañas activas en la cuenta '${account_input}'.` }] };
+      const resultados = [`Campañas activas (${campanas.length} mostradas):\n`];
+      for (const c of campanas) {
+        const pStr = c.daily_budget
+          ? `$${(parseInt(c.daily_budget) / 100).toFixed(2)}/día`
+          : 'presupuesto variable';
+        resultados.push(`- ${c.name} (ID: ${c.id}) | Objetivo: ${c.objective ?? 'N/A'} | Inversión: ${pStr}`);
+      }
+      const nc = nextCursor(data);
+      if (nc) resultados.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
+      return { content: [{ type: 'text', text: resultados.join('\n') }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `Error al consultar campañas activas: ${e.message}` }] };
+    }
+  },
+);
+
+server.registerTool(
+  'obtener_todas_campanas_activas',
+  {
+    description: 'Obtener campañas activas de todas las cuentas accesibles. Parámetro: limite_por_cuenta (default 10).',
+    inputSchema: {
+      limite_por_cuenta: z.number().int().default(10).describe('Máximo de campañas a mostrar por cuenta'),
+    },
+  },
+  async ({ limite_por_cuenta }) => {
+    if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+    try {
+      const cuentasData = await metaGet('/me/adaccounts', { fields: 'id,name' });
+      const cuentas = cuentasData.data as Array<{ id: string; name?: string }>;
+      if (!cuentas?.length)
+        return { content: [{ type: 'text', text: 'No se encontraron cuentas publicitarias asociadas al token.' }] };
+      const resultados: string[] = [];
+      let total = 0;
+      for (const cuenta of cuentas) {
+        try {
+          const data = await metaGet(`/${cuenta.id}/campaigns`, {
+            fields: 'id,name,daily_budget,objective',
+            effective_status: JSON.stringify(['ACTIVE']),
+            limit: limite_por_cuenta,
+          });
+          const campanas = data.data as any[];
+          if (campanas?.length) {
+            const hayMas = nextCursor(data) ? ' (y más...)' : '';
+            resultados.push(`\nCuenta: ${cuenta.name ?? cuenta.id} (${cuenta.id}) — ${campanas.length} activa(s)${hayMas}:`);
+            for (const c of campanas) {
+              const presupuesto = c.daily_budget
+                ? `$${(parseInt(c.daily_budget) / 100).toFixed(0)}/día`
+                : 'no definido';
+              resultados.push(`  - ${c.name} | Objetivo: ${c.objective ?? 'N/A'} | Presupuesto: ${presupuesto}`);
+            }
+            total += campanas.length;
+          }
+        } catch {}
+      }
+      if (!resultados.length)
+        return { content: [{ type: 'text', text: 'No hay campañas activas en ninguna de las cuentas accesibles.' }] };
+      return {
+        content: [{
+          type: 'text',
+          text: `Total campañas activas (mostrando hasta ${limite_por_cuenta} por cuenta): ${total}` + resultados.join(''),
+        }],
+      };
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `Error al consultar campañas activas: ${e.message}` }] };
+    }
+  },
+);
+
+
+server.registerTool(
+  'obtener_anuncios',
+  {
+    description: 'Obtener anuncios (Ads) de una cuenta, campaña o conjunto específico. Parámetros: account_input, adset_id (opcional), campaign_id (opcional), limite (default 20), pagina_cursor.',
+    inputSchema: {
+      account_input: z.string().describe('ID o nombre de la cuenta'),
+      adset_id: z.string().default('').describe('ID de conjunto de anuncios para filtrar (opcional)'),
+      campaign_id: z.string().default('').describe('ID de campaña para filtrar (opcional)'),
+      limite: z.number().int().default(20),
+      pagina_cursor: z.string().default(''),
+    },
+  },
+  async ({ account_input, adset_id, campaign_id, limite, pagina_cursor }) => {
+    if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+    try {
+      const params: Record<string, unknown> = {
+        fields: 'id,name,status,effective_status,adset_id,campaign_id',
+        limit: limite,
+      };
+      if (pagina_cursor) params['after'] = pagina_cursor;
+      let endpoint: string;
+      let origen: string;
+      if (adset_id.trim()) {
+        endpoint = `/${adset_id.trim()}/ads`;
+        origen = `conjunto '${adset_id}'`;
+      } else if (campaign_id.trim()) {
+        endpoint = `/${campaign_id.trim()}/ads`;
+        origen = `campaña '${campaign_id}'`;
+      } else {
+        const accountId = await resolveAccount(account_input);
+        endpoint = `/${accountId}/ads`;
+        origen = `cuenta '${account_input}'`;
+      }
+      const data = await metaGet(endpoint, params);
+      const anuncios = data.data as any[];
+      if (!anuncios?.length)
+        return { content: [{ type: 'text', text: `No se encontraron anuncios en ${origen}.` }] };
+      const resultados = [`Anuncios en ${origen} (${anuncios.length} mostrados):\n`];
+      for (const a of anuncios) {
+        const estado = traducirEstado(a.effective_status ?? a.status ?? '');
+        resultados.push(
+          `- ${a.name ?? 'Sin nombre'} (ID: ${a.id})\n` +
+          `  Estado: ${estado}\n` +
+          `  Conjunto ID: ${a.adset_id ?? 'N/A'} | Campaña ID: ${a.campaign_id ?? 'N/A'}`,
+        );
+      }
+      const nc = nextCursor(data);
+      if (nc) resultados.push(`\n📄 Siguiente página → pagina_cursor='${nc}'`);
+      return { content: [{ type: 'text', text: resultados.join('\n\n') }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `Error al consultar los anuncios: ${e.message}` }] };
+    }
+  },
+);
+
+server.registerTool(
+  'listar_cuentas_publicitarias',
+  { description: 'Listar todas las cuentas de anuncios disponibles con sus nombres e IDs, buscar hasta encontrar la que se solicite, utilizar la paginacion para seguir navegando.' },
+  async () => {
+    if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      try{
+        const data = await getApiClient().fetchData('/me/adaccounts', { fields: 'id,name',limit:200 });
+      const json = await data.json();
+    return { content: [{ type: 'text', text: JSON.stringify(json) }] };  
+      }catch(e:any){
+        return {content:[{type:'text',text:JSON.stringify(e.message)}]}
+      }
+  }
+);  
+}
+
