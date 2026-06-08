@@ -46,6 +46,17 @@ export function credencialesOk(): boolean{
 export function errorCredenciales(): string{
     return 'No se encontraron credenciales de acceso';
 }
+export function errorMeta(prefijo: string, e: any): string {
+    const d = e?.response || {};
+    const partes = [
+        d.error_user_msg,
+        d.error_subcode && `subcódigo ${d.error_subcode}`,
+        d.error_data?.blame_field_specs && `campo: ${JSON.stringify(d.error_data.blame_field_specs)}`,
+    ].filter(Boolean);
+    const detalle = partes.length ? ` — ${partes.join(' · ')}` : '';
+    return `${prefijo}: ${e?.message || 'error desconocido'}${detalle}`;
+}
+
 export function initApi(): void{
     FacebookAdsApi.init(getToken());
 }

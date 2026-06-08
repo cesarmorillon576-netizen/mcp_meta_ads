@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   credencialesOk,
   errorCredenciales,
+  errorMeta,
   initApi,
   resolveAccount,
   cursorToArray,
@@ -208,7 +209,7 @@ export function registrarHerramientasConjuntos(server: McpServer) {
         await adset.update([], { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
         return { content: [{ type: 'text', text: `Conjunto ${adset_id} ${acc === 'encender' ? 'activado' : 'pausado'} correctamente.` }] };
       } catch (e: any) {
-        return { content: [{ type: 'text', text: `Error al cambiar estado del conjunto: ${e.message}` }] };
+        return { content: [{ type: 'text', text: errorMeta('Error al cambiar estado del conjunto', e) }] };
       }
     },
   );
@@ -236,7 +237,7 @@ export function registrarHerramientasConjuntos(server: McpServer) {
         await adset.update([], { [campo]: centavos });
         return { content: [{ type: 'text', text: `💰 Presupuesto ${tipo} del conjunto ${adset_id} actualizado a $${nuevo_presupuesto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.` }] };
       } catch (e: any) {
-        return { content: [{ type: 'text', text: `No se pudo actualizar el presupuesto del conjunto: ${e.message}` }] };
+        return { content: [{ type: 'text', text: errorMeta('No se pudo actualizar el presupuesto del conjunto', e) }] };
       }
     },
   );

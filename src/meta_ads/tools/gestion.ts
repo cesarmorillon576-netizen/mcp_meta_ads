@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { credencialesOk, errorCredenciales, initApi } from '../helpers.js';
+import { credencialesOk, errorCredenciales, errorMeta, initApi } from '../helpers.js';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bizSdk = require('facebook-nodejs-business-sdk');
@@ -28,7 +28,7 @@ export function registrarHerramientasGestion(server: McpServer) {
         await camp.update([], { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
         return { content: [{ type: 'text', text: `Campaña ${campaign_id} ${acc === 'encender' ? 'activada' : 'pausada'} correctamente.` }] };
       } catch (e: any) {
-        return { content: [{ type: 'text', text: `Error al cambiar estado de la campaña: ${e.message}` }] };
+        return { content: [{ type: 'text', text: errorMeta('Error al cambiar estado de la campaña', e) }] };
       }
     },
   );
@@ -56,7 +56,7 @@ export function registrarHerramientasGestion(server: McpServer) {
         await camp.update([], { [campo]: centavos });
         return { content: [{ type: 'text', text: `Presupuesto ${tipo} de la campaña ${campaign_id} actualizado a $${nuevo_presupuesto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.` }] };
       } catch (e: any) {
-        return { content: [{ type: 'text', text: `No se pudo actualizar el presupuesto: ${e.message}` }] };
+        return { content: [{ type: 'text', text: errorMeta('No se pudo actualizar el presupuesto', e) }] };
       }
     },
   );

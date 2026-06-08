@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   credencialesOk,
   errorCredenciales,
+  errorMeta,
   initApi,
   resolveAccount,
   cursorToArray,
@@ -95,7 +96,7 @@ export function registrarHerramientasAnuncios(server: McpServer) {
         await ad.update([], { status: acc === 'encender' ? 'ACTIVE' : 'PAUSED' });
         return { content: [{ type: 'text', text: `Anuncio ${ad_id} ${acc === 'encender' ? 'activado' : 'pausado'} correctamente.` }] };
       } catch (e: any) {
-        return { content: [{ type: 'text', text: `Error al cambiar estado del anuncio: ${e.message}` }] };
+        return { content: [{ type: 'text', text: errorMeta('Error al cambiar estado del anuncio', e) }] };
       }
     },
   );

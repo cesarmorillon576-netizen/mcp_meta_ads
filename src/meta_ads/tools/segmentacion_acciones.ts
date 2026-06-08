@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import {
-    credencialesOk, errorCredenciales, initApi, resolveAccount, cursorToArray
+    credencialesOk, errorCredenciales, errorMeta, initApi, resolveAccount, cursorToArray
 } from '../helpers.js';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -58,7 +58,7 @@ export function registrarToolsSegmentacionAcciones(server: McpServer) {
 
                 return { content: [{ type: 'text', text: `🌎 Geografía del conjunto ${adset_id} actualizada.` }] };
             } catch (e: any) {
-                return { content: [{ type: 'text', text: `Error al actualizar la geografía: ${e.message}` }] };
+                return { content: [{ type: 'text', text: errorMeta('Error al actualizar la geografía', e) }] };
             }
 
         }
@@ -191,7 +191,7 @@ export function registrarToolsSegmentacionAcciones(server: McpServer) {
 
                 return { content: [{ type: 'text', text: resumen.join('\n') }] };
             } catch (e: any) {
-                return { content: [{ type: 'text', text: `Error al modificar segmentación: ${e.message}` }] };
+                return { content: [{ type: 'text', text: errorMeta('Error al modificar segmentación', e) }] };
             }
         }
     );

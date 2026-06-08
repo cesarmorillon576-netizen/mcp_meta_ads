@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import {
-    credencialesOk, errorCredenciales, initApi, resolveAccount
+    credencialesOk, errorCredenciales, errorMeta, initApi, resolveAccount
 } from '../helpers.js';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -50,7 +50,7 @@ export function registrarToolsCreacion(server: McpServer) {
                     }]
                 };
             } catch (e: any) {
-                return { content: [{ type: 'text', text: `Error al crear la campaña: ${e.message}` }] }
+                return { content: [{ type: 'text', text: errorMeta('Error al crear la campaña', e) }] }
             }
         }
     );
@@ -99,7 +99,7 @@ export function registrarToolsCreacion(server: McpServer) {
                     }]
                 };
             } catch (e: any) {
-                return { content: [{ type: 'text', text: `Error al crear conjunto: ${e.message}` }] };
+                return { content: [{ type: 'text', text: errorMeta('Error al crear conjunto', e) }] };
             }
         }
     );
@@ -138,7 +138,7 @@ export function registrarToolsCreacion(server: McpServer) {
                     }]
                 };
             } catch (e: any) {
-                return { content: [{ type: 'text', text: `Error al crear anuncio: ${e.message}` }] };
+                return { content: [{ type: 'text', text: errorMeta('Error al crear anuncio', e) }] };
             }
         },
     );
