@@ -10,7 +10,7 @@ import { findEnvPath } from './helpers.js';
 
 dotenv.config({ path: findEnvPath() });
 
-function crearServidorMeta(): McpServer {
+ function crearServidorMeta(): McpServer {
   const server = new McpServer({ name: 'mcp-meta-ads', version: '1.0.0' });
   registrarTodasLasHerramientas(server);
   return server;
@@ -65,7 +65,7 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 const app = express();
 app.use(express.json());
 
-function montarMcp(ruta: string, crearServidor: () => McpServer): void {
+export default function montarMcp(ruta: string, crearServidor: () => McpServer): void {
   const transports: Record<string, StreamableHTTPServerTransport> = {};
 
   app.post(ruta, requireAuth, async (req, res) => {

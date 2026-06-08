@@ -1,0 +1,4 @@
+name= "meta-ads-mcp"
+main = "src/meta_ads/server_http.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
