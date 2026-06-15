@@ -1,10 +1,11 @@
-import * as dotenv from 'dotenv';
+import { config } from 'dotenv';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registrarTodasLasHerramientas } from './index.js';
 import { findEnvPath } from './helpers.js';
 
-dotenv.config({ path: findEnvPath() });
+config({ path: findEnvPath() });
+
 
 const server = new McpServer({
     name: "mcp-meta-ads",

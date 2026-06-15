@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { registrarTodasLasHerramientas } from './index.js';
 import { registrarHerramientasGoogle } from '../google_ads/server.js';
+import { registrarHerramientasGHL } from '../ghc_mcp/server.js';
 import { findEnvPath } from './helpers.js';
 
 dotenv.config({ path: findEnvPath() });
@@ -26,6 +27,12 @@ function crearServidorGoogle(): McpServer {
       content: [{ type: 'text', text: MENSAJE_WIP }],
     }));
   registrarHerramientasGoogle(server);
+  return server;
+}
+
+function crearServidorGHL(): McpServer {
+  const server = new McpServer({ name: 'mcp-ghl', version: '1.0.0' });
+  registrarHerramientasGHL(server);
   return server;
 }
 
@@ -122,12 +129,13 @@ function montarMcp(ruta: string, crearServidor: () => McpServer): void {
 
 montarMcp('/mcp', crearServidorMeta);
 montarMcp('/gads/mcp', crearServidorGoogle);
+montarMcp('/ghl/mcp', crearServidorGHL);
 
 app.get('/', (_req, res) => {
-  res.status(200).send('MCP activo  ->  POST /mcp (Meta) | POST /gads/mcp (Google)');
+  res.status(200).send('MCP activo  ->  POST /mcp (Meta) | POST /gads/mcp (Google) | POST /ghl/mcp (GoHighLevel)');
 });
 
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  process.stderr.write(`MCP (HTTP) escuchando en :${PORT}  ->  POST /mcp (Meta)  |  POST /gads/mcp (Google)\n`);
+  process.stderr.write(`MCP (HTTP) escuchando en :${PORT}  ->  POST /mcp (Meta)  |  POST /gads/mcp (Google)  |  POST /ghl/mcp (GoHighLevel)\n`);
 });

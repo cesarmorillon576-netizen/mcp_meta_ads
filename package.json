@@ -12,6 +12,7 @@
     "start:google": "node dist/google_ads/server.js"
   },
   "dependencies": {
+    "@gohighlevel/api-client": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
