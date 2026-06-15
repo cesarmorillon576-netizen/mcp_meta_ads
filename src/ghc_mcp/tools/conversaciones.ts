@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation } from './cliente.js';
+import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation, hintPagina, limiteSeguro } from './cliente.js';
 
 export function registrarHerramientasConversaciones(server: McpServer): void {
   server.registerTool(
@@ -11,19 +11,22 @@ export function registrarHerramientasConversaciones(server: McpServer): void {
         location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
         contacto_id: z.string().default('').describe('Filtrar por un contacto específico'),
         query: z.string().default('').describe('Texto a buscar'),
-        limite: z.number().int().default(20),
+        limite: z.number().int().default(20).describe('Cantidad por página (máx 100)'),
+        pagina_cursor: z.string().default('').describe('Cursor de la siguiente página (lo devuelve esta misma herramienta)'),
       },
     },
-    async ({ location_id, contacto_id, query, limite }) => {
+    async ({ location_id, contacto_id, query, limite, pagina_cursor }) => {
       if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
       const loc = resolverLocation(location_id);
       if (!loc) return faltaLocation();
+      const tope = limiteSeguro(limite);
       try {
         const resp: any = await getCliente().conversations.searchConversation({
           locationId: loc,
-          limit: limite,
+          limit: tope,
           ...(contacto_id ? { contactId: contacto_id } : {}),
           ...(query ? { query } : {}),
+          ...(pagina_cursor ? { startAfterDate: Number(pagina_cursor) || pagina_cursor } : {}),
         });
         const convs: any[] = resp?.conversations ?? [];
         if (!convs.length) return { content: [{ type: 'text', text: `No se encontraron conversaciones en la ubicación ${loc}.` }] };
@@ -31,7 +34,13 @@ export function registrarHerramientasConversaciones(server: McpServer): void {
           const noLeidos = c.unreadCount ? ` | ${c.unreadCount} sin leer` : '';
           return `- ${c.contactName || c.fullName || 'Sin nombre'} (conv: ${c.id})\n  Último [${c.lastMessageType ?? '?'}]: ${c.lastMessageBody ?? '(vacío)'}${noLeidos}`;
         });
-        return { content: [{ type: 'text', text: `Conversaciones (${convs.length}):\n${lineas.join('\n')}` }] };
+        let nc = '';
+        if (convs.length >= tope) {
+          const u = convs[convs.length - 1];
+          const d = u?.sort?.[0] ?? u?.lastMessageDate ?? u?.dateUpdated;
+          if (d != null) nc = String(d);
+        }
+        return { content: [{ type: 'text', text: `Conversaciones (${convs.length}):\n${lineas.join('\n')}${hintPagina(nc)}` }] };
       } catch (e: any) {
         return { content: [{ type: 'text', text: errGhl('Error al buscar conversaciones', e) }] };
       }
@@ -45,24 +54,27 @@ export function registrarHerramientasConversaciones(server: McpServer): void {
       inputSchema: {
         conversacion_id: z.string().describe('ID de la conversación'),
         location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
-        limite: z.number().int().default(20),
+        limite: z.number().int().default(20).describe('Cantidad por página (máx 100)'),
+        pagina_cursor: z.string().default('').describe('Cursor de la siguiente página (lo devuelve esta misma herramienta)'),
       },
     },
-    async ({ conversacion_id, location_id, limite }) => {
+    async ({ conversacion_id, location_id, limite, pagina_cursor }) => {
       if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
       const loc = resolverLocation(location_id);
       try {
         const resp: any = await getCliente().conversations.getMessages(
-          { conversationId: conversacion_id, limit: limite },
+          { conversationId: conversacion_id, limit: limiteSeguro(limite), ...(pagina_cursor ? { lastMessageId: pagina_cursor } : {}) },
           loc ? { headers: { locationId: loc } } : undefined,
         );
-        const mensajes: any[] = resp?.messages?.messages ?? resp?.messages ?? [];
+        const cont: any = resp?.messages && Array.isArray(resp.messages.messages) ? resp.messages : resp;
+        const mensajes: any[] = cont?.messages ?? [];
         if (!mensajes.length) return { content: [{ type: 'text', text: `La conversación ${conversacion_id} no tiene mensajes.` }] };
         const lineas = mensajes.map((m) => {
           const dir = m.direction === 'inbound' ? '←' : '→';
           return `${dir} [${m.messageType ?? m.type ?? '?'}] ${m.dateAdded ?? ''}\n  ${m.body ?? '(sin texto)'}`;
         });
-        return { content: [{ type: 'text', text: `Mensajes de ${conversacion_id} (${mensajes.length}):\n${lineas.join('\n')}` }] };
+        const nc = cont?.nextPage && cont?.lastMessageId ? String(cont.lastMessageId) : '';
+        return { content: [{ type: 'text', text: `Mensajes de ${conversacion_id} (${mensajes.length}):\n${lineas.join('\n')}${hintPagina(nc)}` }] };
       } catch (e: any) {
         return { content: [{ type: 'text', text: errGhl('Error al obtener mensajes', e) }] };
       }

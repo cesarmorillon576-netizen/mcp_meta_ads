@@ -29,3 +29,29 @@ export function resolverLocation(location_id: string): string {
 export function faltaLocation(): { content: { type: 'text'; text: string }[] } {
   return { content: [{ type: 'text', text: 'Error: falta GHL_LOCATION_ID en el .env (o pásalo en location_id).' }] };
 }
+
+export function parseCursor(cursor: string): { sa: string; sai: string } {
+  if (!cursor) return { sa: '', sai: '' };
+  const i = cursor.indexOf('|');
+  if (i === -1) return { sa: cursor, sai: '' };
+  return { sa: cursor.slice(0, i), sai: cursor.slice(i + 1) };
+}
+
+export function cursorMeta(meta: any): string {
+  if (!meta) return '';
+  const haySiguiente = !!meta.nextPageUrl || (meta.nextPage != null && meta.nextPage !== false);
+  if (!haySiguiente) return '';
+  const sa = meta.startAfter ?? '';
+  const sai = meta.startAfterId ?? '';
+  if (sa === '' && sai === '') return '';
+  return `${sa}|${sai}`;
+}
+
+export function hintPagina(cursor: string): string {
+  return cursor ? `\n\n📄 Siguiente página → pagina_cursor='${cursor}'` : '';
+}
+
+export function limiteSeguro(n: number): number {
+  if (!Number.isFinite(n)) return 20;
+  return Math.min(Math.max(1, Math.trunc(n)), 100);
+}

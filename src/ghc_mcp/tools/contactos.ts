@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation } from './cliente.js';
+import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation, parseCursor, cursorMeta, hintPagina, limiteSeguro } from './cliente.js';
 
 export function registrarHerramientasContactos(server: McpServer): void {
   server.registerTool(
@@ -10,18 +10,22 @@ export function registrarHerramientasContactos(server: McpServer): void {
       inputSchema: {
         location_id: z.string().default('').describe('ID de la ubicación (sub-cuenta). Si se omite, usa GHL_LOCATION_ID del .env'),
         query: z.string().default('').describe('Texto a buscar (nombre, email, teléfono)'),
-        limite: z.number().int().default(20),
+        limite: z.number().int().default(20).describe('Cantidad por página (máx 100)'),
+        pagina_cursor: z.string().default('').describe('Cursor de la siguiente página (lo devuelve esta misma herramienta)'),
       },
     },
-    async ({ location_id, query, limite }) => {
+    async ({ location_id, query, limite, pagina_cursor }) => {
       if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
       const loc = resolverLocation(location_id);
       if (!loc) return faltaLocation();
+      const { sa, sai } = parseCursor(pagina_cursor);
       try {
         const resp: any = await getCliente().contacts.getContacts({
           locationId: loc,
-          limit: limite,
+          limit: limiteSeguro(limite),
           ...(query ? { query } : {}),
+          ...(sa ? { startAfter: Number(sa) } : {}),
+          ...(sai ? { startAfterId: sai } : {}),
         });
         const contactos: any[] = resp?.contacts ?? [];
         if (!contactos.length) return { content: [{ type: 'text', text: `No se encontraron contactos en la ubicación ${loc}.` }] };
@@ -30,7 +34,13 @@ export function registrarHerramientasContactos(server: McpServer): void {
           const tags = c.tags?.length ? ` | tags: ${c.tags.join(', ')}` : '';
           return `- ${nombre} (ID: ${c.id})\n  Email: ${c.email ?? 'N/A'} | Tel: ${c.phone ?? 'N/A'} | Origen: ${c.source ?? 'N/A'}${tags}`;
         });
-        return { content: [{ type: 'text', text: `Contactos (${contactos.length}):\n${lineas.join('\n')}` }] };
+        let nc = cursorMeta(resp?.meta);
+        if (!nc && contactos.length >= limiteSeguro(limite)) {
+          const u = contactos[contactos.length - 1];
+          const ts = u?.dateAdded ? new Date(u.dateAdded).getTime() : '';
+          if (u?.id) nc = `${Number.isNaN(ts as number) ? '' : ts}|${u.id}`;
+        }
+        return { content: [{ type: 'text', text: `Contactos (${contactos.length}):\n${lineas.join('\n')}${hintPagina(nc)}` }] };
       } catch (e: any) {
         return { content: [{ type: 'text', text: errGhl('Error al obtener contactos', e) }] };
       }
