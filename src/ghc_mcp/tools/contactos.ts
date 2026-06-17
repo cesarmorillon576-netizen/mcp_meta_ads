@@ -82,4 +82,61 @@ export function registrarHerramientasContactos(server: McpServer): void {
       }
     },
   );
+
+  server.registerTool(
+    'agregar_nota_contacto',
+    {
+      description: 'Agrega una nota interna a un contacto de GoHighLevel (queda en su historial, no se le envía nada al contacto).',
+      inputSchema: {
+        contacto_id: z.string().describe('ID del contacto'),
+        nota: z.string().describe('Texto de la nota'),
+        location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
+      },
+    },
+    async ({ contacto_id, nota, location_id }) => {
+      if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      const loc = resolverLocation(location_id);
+      try {
+        const resp: any = await getCliente().contacts.createNote(
+          { contactId: contacto_id },
+          { body: nota } as any,
+          loc ? { headers: { locationId: loc } } : undefined,
+        );
+        const id = resp?.note?.id ?? resp?.id ?? 'creada';
+        return { content: [{ type: 'text', text: `📝 Nota agregada al contacto ${contacto_id} (ID: ${id}).` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: errGhl('Error al agregar la nota', e) }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    'etiquetar_contacto',
+    {
+      description: 'Agrega o quita etiquetas (tags) de un contacto de GoHighLevel. Útil para segmentar o disparar automatizaciones.',
+      inputSchema: {
+        contacto_id: z.string().describe('ID del contacto'),
+        etiquetas: z.array(z.string()).describe('Lista de etiquetas a agregar o quitar'),
+        accion: z.string().default('agregar').describe("'agregar' o 'quitar'"),
+        location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
+      },
+    },
+    async ({ contacto_id, etiquetas, accion, location_id }) => {
+      if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      if (!etiquetas.length) return { content: [{ type: 'text', text: 'Error: indica al menos una etiqueta.' }] };
+      const acc = accion.trim().toLowerCase();
+      if (acc !== 'agregar' && acc !== 'quitar')
+        return { content: [{ type: 'text', text: "Error: 'accion' debe ser 'agregar' o 'quitar'." }] };
+      const loc = resolverLocation(location_id);
+      const opts = loc ? { headers: { locationId: loc } } : undefined;
+      try {
+        const cli = getCliente();
+        if (acc === 'agregar') await cli.contacts.addTags({ contactId: contacto_id }, { tags: etiquetas } as any, opts);
+        else await cli.contacts.removeTags({ contactId: contacto_id }, { tags: etiquetas } as any, opts);
+        return { content: [{ type: 'text', text: `🏷️ Etiquetas ${acc === 'agregar' ? 'agregadas a' : 'quitadas de'} el contacto ${contacto_id}: ${etiquetas.join(', ')}.` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: errGhl('Error al modificar etiquetas', e) }] };
+      }
+    },
+  );
 }

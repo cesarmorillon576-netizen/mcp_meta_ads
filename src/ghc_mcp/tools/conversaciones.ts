@@ -80,4 +80,36 @@ export function registrarHerramientasConversaciones(server: McpServer): void {
       }
     },
   );
+
+  server.registerTool(
+    'enviar_mensaje',
+    {
+      description: 'Envía (responde) un mensaje a un contacto de GoHighLevel por el canal indicado. El mensaje sale del canal ya conectado en la ubicación (debe haber proveedor configurado para ese canal).',
+      inputSchema: {
+        contacto_id: z.string().describe('ID del contacto destinatario'),
+        mensaje: z.string().describe('Texto del mensaje a enviar'),
+        canal: z.string().default('SMS').describe("Canal: 'SMS', 'WhatsApp', 'Email', 'IG' (Instagram), 'FB' (Messenger), 'Live_Chat' o 'GMB'"),
+        asunto: z.string().default('').describe('Solo para Email: asunto del correo'),
+      },
+    },
+    async ({ contacto_id, mensaje, canal, asunto }) => {
+      if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      const tipos: Record<string, string> = {
+        sms: 'SMS', whatsapp: 'WhatsApp', email: 'Email', ig: 'IG', instagram: 'IG',
+        fb: 'FB', messenger: 'FB', live_chat: 'Live_Chat', chat: 'Live_Chat', gmb: 'GMB',
+      };
+      const tipo = tipos[canal.trim().toLowerCase()];
+      if (!tipo) return { content: [{ type: 'text', text: "Error: 'canal' debe ser SMS, WhatsApp, Email, IG, FB, Live_Chat o GMB." }] };
+      try {
+        const body: any = { type: tipo, contactId: contacto_id, message: mensaje };
+        if (tipo === 'Email' && asunto.trim()) body.subject = asunto.trim();
+        const resp: any = await getCliente().conversations.sendANewMessage(body);
+        const convId = resp?.conversationId ?? resp?.conversation?.id ?? 'N/A';
+        const msgId = resp?.messageId ?? resp?.messageIds?.[0] ?? 'N/A';
+        return { content: [{ type: 'text', text: `✅ Mensaje (${tipo}) enviado al contacto ${contacto_id}.\n- Conversación: ${convId}\n- Mensaje: ${msgId}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: errGhl('Error al enviar el mensaje', e) }] };
+      }
+    },
+  );
 }

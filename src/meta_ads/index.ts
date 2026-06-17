@@ -17,6 +17,11 @@ import { registrarHerramientasAuditoria } from './tools/auditoria.js';
 import { registrarToolsSegmentacionAcciones } from './tools/segmentacion_acciones.js';
 import { registrarHerramientasInformacion } from './tools/informacion.js';
 import { registrarHerramientasOptimizacion } from './tools/optimizacion.js';
+import { registrarHerramientasAccionesEstructura } from './tools/acciones_estructura.js';
+import { registrarHerramientasAccionesConjunto } from './tools/acciones_conjunto.js';
+import { registrarHerramientasAudienciasAcciones } from './tools/audiencias_acciones.js';
+import { registrarHerramientasCuentaAcciones } from './tools/cuenta_acciones.js';
+import { registrarHerramientasReglas } from './tools/reglas.js';
 
 function conSanitizacion(server: McpServer): McpServer {
   const registrarOriginal = (server.registerTool as any).bind(server);
@@ -54,4 +59,9 @@ export function registrarTodasLasHerramientas(server: McpServer) {
   registrarToolsCreacion(s);
   registrarHerramientasInformacion(s);
   registrarHerramientasOptimizacion(s);
+  registrarHerramientasAccionesEstructura(s);
+  registrarHerramientasAccionesConjunto(s);
+  registrarHerramientasAudienciasAcciones(s);
+  registrarHerramientasCuentaAcciones(s);
+  registrarHerramientasReglas(s);
 }

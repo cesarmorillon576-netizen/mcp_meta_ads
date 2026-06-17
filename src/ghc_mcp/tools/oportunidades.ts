@@ -73,4 +73,44 @@ export function registrarHerramientasOportunidades(server: McpServer): void {
       }
     },
   );
+
+  server.registerTool(
+    'actualizar_oportunidad',
+    {
+      description: 'Actualiza una oportunidad de GoHighLevel: muévela de etapa, cambia su estado (ganada/perdida), su valor o su nombre. Solo cambia los campos que envíes.',
+      inputSchema: {
+        oportunidad_id: z.string().describe('ID de la oportunidad'),
+        etapa_id: z.string().default('').describe('Nueva etapa (pipelineStageId, de obtener_pipelines)'),
+        pipeline_id: z.string().default('').describe('Mover a otro pipeline (de obtener_pipelines)'),
+        estado: z.string().default('').describe("Nuevo estado: 'open', 'won', 'lost' o 'abandoned'"),
+        valor: z.number().optional().describe('Nuevo valor monetario'),
+        nombre: z.string().default('').describe('Nuevo nombre de la oportunidad'),
+        location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
+      },
+    },
+    async ({ oportunidad_id, etapa_id, pipeline_id, estado, valor, nombre, location_id }) => {
+      if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      const body: any = {};
+      if (etapa_id) body.pipelineStageId = etapa_id;
+      if (pipeline_id) body.pipelineId = pipeline_id;
+      if (estado) body.status = estado.trim().toLowerCase();
+      if (valor != null) body.monetaryValue = valor;
+      if (nombre) body.name = nombre;
+      if (!Object.keys(body).length)
+        return { content: [{ type: 'text', text: 'Error: indica al menos un campo a actualizar (etapa, estado, valor, etc.).' }] };
+      const loc = resolverLocation(location_id);
+      try {
+        const resp: any = await getCliente().opportunities.updateOpportunity(
+          { id: oportunidad_id },
+          body,
+          loc ? { headers: { locationId: loc } } : undefined,
+        );
+        const o = resp?.opportunity ?? resp;
+        const cambios = Object.keys(body).join(', ');
+        return { content: [{ type: 'text', text: `📈 Oportunidad ${oportunidad_id} actualizada (${cambios}).\n- Estado: ${o?.status ?? body.status ?? 'sin cambio'}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: errGhl('Error al actualizar la oportunidad', e) }] };
+      }
+    },
+  );
 }
