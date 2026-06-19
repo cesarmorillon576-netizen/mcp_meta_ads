@@ -75,6 +75,69 @@ export function registrarHerramientasOportunidades(server: McpServer): void {
   );
 
   server.registerTool(
+    'crear_oportunidad',
+    {
+      description: 'Crea una nueva oportunidad (prospecto en el embudo de venta) en GoHighLevel para un contacto. Usa los IDs de obtener_pipelines.',
+      inputSchema: {
+        nombre: z.string().describe('Nombre de la oportunidad'),
+        pipeline_id: z.string().describe('ID del pipeline (de obtener_pipelines)'),
+        contacto_id: z.string().describe('ID del contacto asociado'),
+        etapa_id: z.string().default('').describe('ID de la etapa inicial (pipelineStageId, de obtener_pipelines)'),
+        estado: z.string().default('open').describe("Estado: 'open', 'won', 'lost' o 'abandoned'"),
+        valor: z.number().optional().describe('Valor monetario de la oportunidad'),
+        location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
+      },
+    },
+    async ({ nombre, pipeline_id, contacto_id, etapa_id, estado, valor, location_id }) => {
+      if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      const loc = resolverLocation(location_id);
+      if (!loc) return faltaLocation();
+      const body: any = {
+        name: nombre,
+        pipelineId: pipeline_id,
+        locationId: loc,
+        contactId: contacto_id,
+        status: estado.trim().toLowerCase() || 'open',
+      };
+      if (etapa_id.trim()) body.pipelineStageId = etapa_id.trim();
+      if (valor != null) body.monetaryValue = valor;
+      try {
+        const resp: any = await getCliente().opportunities.createOpportunity(body);
+        const o = resp?.opportunity ?? resp;
+        return { content: [{ type: 'text', text: `✅ Oportunidad creada (ID: ${o?.id ?? 'creada'}).\n- ${nombre} | Estado: ${o?.status ?? body.status}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: errGhl('Error al crear la oportunidad', e) }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    'eliminar_oportunidad',
+    {
+      description: 'Elimina permanentemente una oportunidad de GoHighLevel. Acción irreversible: requiere confirmar=true.',
+      inputSchema: {
+        oportunidad_id: z.string().describe('ID de la oportunidad'),
+        confirmar: z.boolean().default(false).describe('Debe ser true para confirmar el borrado.'),
+        location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
+      },
+    },
+    async ({ oportunidad_id, confirmar, location_id }) => {
+      if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      if (!confirmar) return { content: [{ type: 'text', text: 'Acción no ejecutada: para eliminar la oportunidad envía confirmar=true.' }] };
+      const loc = resolverLocation(location_id);
+      try {
+        await getCliente().opportunities.deleteOpportunity(
+          { id: oportunidad_id },
+          loc ? { headers: { locationId: loc } } : undefined,
+        );
+        return { content: [{ type: 'text', text: `🗑️ Oportunidad ${oportunidad_id} eliminada.` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: errGhl('Error al eliminar la oportunidad', e) }] };
+      }
+    },
+  );
+
+  server.registerTool(
     'actualizar_oportunidad',
     {
       description: 'Actualiza una oportunidad de GoHighLevel: muévela de etapa, cambia su estado (ganada/perdida), su valor o su nombre. Solo cambia los campos que envíes.',
