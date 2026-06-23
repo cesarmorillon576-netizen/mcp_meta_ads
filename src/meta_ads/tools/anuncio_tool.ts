@@ -1393,6 +1393,7 @@ server.registerTool(
   'listar_cuentas_publicitarias',
   { description: 'Listar todas las cuentas de anuncios disponibles con sus nombres e IDs, buscar hasta encontrar la que se solicite, utilizar la paginacion para seguir navegando.' },
   async () => {
+    console.log('Ejecutando herramienta: listar_cuentas_publicitarias');
     if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
       try{
         const data = await getApiClient().fetchData('/me/adaccounts', { fields: 'id,name',limit:200 });

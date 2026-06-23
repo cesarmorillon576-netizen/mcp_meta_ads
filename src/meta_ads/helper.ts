@@ -9,7 +9,8 @@ export function getToken(): string {
 }
 
 export function credencialesOk(): boolean {
-  return _token.length > 0;
+  console.log('Verificando credenciales de Meta Ads');
+  return _token?.length > 0;
 }
 
 export function errorCredenciales(): string {

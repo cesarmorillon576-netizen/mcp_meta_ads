@@ -5,14 +5,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 interface Env {
   META_ACCESS_TOKEN: string;
+  MCP_AUTH_TOKEN:string;
 }
 
 
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    console.log('Meta Ads MCP received a request');
     setToken(env.META_ACCESS_TOKEN);
-
+    if(!env?.MCP_AUTH_TOKEN) {
+      throw new Error('No se encontró el token de acceso de Meta Ads en las variables de entorno.');
+    }
     const headers = {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
