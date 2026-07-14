@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation, parseCursor, cursorMeta, hintPagina, limiteSeguro } from './cliente.js';
+import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation, parseCursor, cursorMeta, hintPagina, limiteSeguro, nombreUsuario, nombresDeUsuarios, autorNota } from './cliente.js';
 
 export function registrarHerramientasContactos(server: McpServer): void {
   server.registerTool(
@@ -79,6 +79,33 @@ export function registrarHerramientasContactos(server: McpServer): void {
         return { content: [{ type: 'text', text: lineas.join('\n') }] };
       } catch (e: any) {
         return { content: [{ type: 'text', text: errGhl('Error al ver el contacto', e) }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    'listar_usuarios',
+    {
+      description: 'Lista los usuarios (agentes/staff) de una ubicación de GoHighLevel. Usa sus IDs en usuario_id para atribuir notas o asignar contactos.',
+      inputSchema: {
+        location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
+      },
+    },
+    async ({ location_id }) => {
+      if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
+      const loc = resolverLocation(location_id);
+      if (!loc) return faltaLocation();
+      try {
+        const resp: any = await getCliente().users.getUserByLocation({ locationId: loc });
+        const usuarios: any[] = resp?.users ?? [];
+        if (!usuarios.length) return { content: [{ type: 'text', text: `No hay usuarios en la ubicación ${loc}.` }] };
+        const lineas = usuarios.map((u) => {
+          const nombre = u.name || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || 'Sin nombre';
+          return `- ${nombre} (ID: ${u.id})\n  Email: ${u.email ?? 'N/A'} | Rol: ${u.roles?.role ?? 'N/A'}`;
+        });
+        return { content: [{ type: 'text', text: `Usuarios (${usuarios.length}):\n${lineas.join('\n')}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: errGhl('Error al listar usuarios', e) }] };
       }
     },
   );
@@ -202,7 +229,7 @@ export function registrarHerramientasContactos(server: McpServer): void {
   server.registerTool(
     'obtener_notas_contacto',
     {
-      description: 'Obtiene todas las notas internas de un contacto de GoHighLevel (su historial de notas).',
+      description: 'Obtiene todas las notas internas de un contacto de GoHighLevel (su historial de notas), indicando quién creó cada una.',
       inputSchema: {
         contacto_id: z.string().describe('ID del contacto'),
         location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
@@ -218,9 +245,10 @@ export function registrarHerramientasContactos(server: McpServer): void {
         );
         const notas: any[] = resp?.notes ?? [];
         if (!notas.length) return { content: [{ type: 'text', text: `El contacto ${contacto_id} no tiene notas.` }] };
+        const nombres = await nombresDeUsuarios(notas.map((n) => n.userId ?? ''));
         const lineas = notas.map((n) => {
           const titulo = n.title ? `${n.title} — ` : '';
-          return `- [${n.dateAdded ?? 'sin fecha'}] (ID: ${n.id})\n  ${titulo}${n.body ?? '(sin texto)'}`;
+          return `- [${n.dateAdded ?? 'sin fecha'}] (ID: ${n.id})\n  Creada por: ${autorNota(n.userId ?? '', nombres)}\n  ${titulo}${n.body ?? '(sin texto)'}`;
         });
         return { content: [{ type: 'text', text: `Notas del contacto ${contacto_id} (${notas.length}):\n${lineas.join('\n')}` }] };
       } catch (e: any) {
@@ -232,24 +260,29 @@ export function registrarHerramientasContactos(server: McpServer): void {
   server.registerTool(
     'agregar_nota_contacto',
     {
-      description: 'Agrega una nota interna a un contacto de GoHighLevel (queda en su historial, no se le envía nada al contacto).',
+      description: 'Agrega una nota interna a un contacto de GoHighLevel (queda en su historial, no se le envía nada al contacto). Puedes atribuirla a un usuario con usuario_id.',
       inputSchema: {
         contacto_id: z.string().describe('ID del contacto'),
         nota: z.string().describe('Texto de la nota'),
+        usuario_id: z.string().default('').describe('ID del usuario al que se atribuye la nota. Si se omite, la nota queda a nombre de la integración.'),
         location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
       },
     },
-    async ({ contacto_id, nota, location_id }) => {
+    async ({ contacto_id, nota, usuario_id, location_id }) => {
       if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
       const loc = resolverLocation(location_id);
+      const body: any = { body: nota };
+      if (usuario_id.trim()) body.userId = usuario_id.trim();
       try {
         const resp: any = await getCliente().contacts.createNote(
           { contactId: contacto_id },
-          { body: nota } as any,
+          body,
           loc ? { headers: { locationId: loc } } : undefined,
         );
-        const id = resp?.note?.id ?? resp?.id ?? 'creada';
-        return { content: [{ type: 'text', text: `📝 Nota agregada al contacto ${contacto_id} (ID: ${id}).` }] };
+        const n = resp?.note ?? resp;
+        const autor = n?.userId ? await nombreUsuario(n.userId) : '';
+        const linea = n?.userId ? `\n- Creada por: ${autor ? `${autor} (${n.userId})` : `usuario ${n.userId}`}` : '';
+        return { content: [{ type: 'text', text: `📝 Nota agregada al contacto ${contacto_id} (ID: ${n?.id ?? 'creada'}).${linea}` }] };
       } catch (e: any) {
         return { content: [{ type: 'text', text: errGhl('Error al agregar la nota', e) }] };
       }
@@ -259,21 +292,24 @@ export function registrarHerramientasContactos(server: McpServer): void {
   server.registerTool(
     'editar_nota_contacto',
     {
-      description: 'Edita el texto de una nota existente de un contacto de GoHighLevel (usa el ID de nota de obtener_notas_contacto).',
+      description: 'Edita el texto de una nota existente de un contacto de GoHighLevel (usa el ID de nota de obtener_notas_contacto). Puedes reatribuirla con usuario_id.',
       inputSchema: {
         contacto_id: z.string().describe('ID del contacto'),
         nota_id: z.string().describe('ID de la nota (de obtener_notas_contacto)'),
         nota: z.string().describe('Nuevo texto de la nota'),
+        usuario_id: z.string().default('').describe('ID del usuario al que se atribuye la nota (opcional)'),
         location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
       },
     },
-    async ({ contacto_id, nota_id, nota, location_id }) => {
+    async ({ contacto_id, nota_id, nota, usuario_id, location_id }) => {
       if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
       const loc = resolverLocation(location_id);
+      const body: any = { body: nota };
+      if (usuario_id.trim()) body.userId = usuario_id.trim();
       try {
         await getCliente().contacts.updateNote(
           { contactId: contacto_id, id: nota_id },
-          { body: nota } as any,
+          body,
           loc ? { headers: { locationId: loc } } : undefined,
         );
         return { content: [{ type: 'text', text: `✏️ Nota ${nota_id} del contacto ${contacto_id} actualizada.` }] };

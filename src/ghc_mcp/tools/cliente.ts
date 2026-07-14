@@ -55,3 +55,33 @@ export function limiteSeguro(n: number): number {
   if (!Number.isFinite(n)) return 20;
   return Math.min(Math.max(1, Math.trunc(n)), 100);
 }
+
+const nombresUsuario = new Map<string, string>();
+
+export async function nombreUsuario(userId: string): Promise<string> {
+  if (!userId) return '';
+  const enCache = nombresUsuario.get(userId);
+  if (enCache !== undefined) return enCache;
+  let nombre = '';
+  try {
+    const resp: any = await getCliente().users.getUser({ userId });
+    const u = resp?.user ?? resp;
+    nombre = u?.name || `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim() || u?.email || '';
+  } catch {
+    nombre = '';
+  }
+  nombresUsuario.set(userId, nombre);
+  return nombre;
+}
+
+export async function nombresDeUsuarios(userIds: string[]): Promise<Map<string, string>> {
+  const unicos = Array.from(new Set(userIds.filter(Boolean)));
+  const pares = await Promise.all(unicos.map(async (id) => [id, await nombreUsuario(id)] as const));
+  return new Map(pares);
+}
+
+export function autorNota(userId: string, nombres: Map<string, string>): string {
+  if (!userId) return 'sistema/automatización';
+  const nombre = nombres.get(userId);
+  return nombre ? `${nombre} (${userId})` : `usuario ${userId}`;
+}
