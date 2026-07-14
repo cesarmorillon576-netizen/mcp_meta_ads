@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation, parseCursor, cursorMeta, hintPagina, limiteSeguro, nombreUsuario, nombresDeUsuarios, autorNota } from './cliente.js';
+import { credencialesOk, errorCredenciales, errGhl, getCliente, resolverLocation, faltaLocation, parseCursor, cursorMeta, hintPagina, limiteSeguro, nombreUsuario, nombresDeUsuarios, autorNota, limpiarHtml, elegirUsuario } from './cliente.js';
 
 export function registrarHerramientasContactos(server: McpServer): void {
   server.registerTool(
@@ -247,8 +247,10 @@ export function registrarHerramientasContactos(server: McpServer): void {
         if (!notas.length) return { content: [{ type: 'text', text: `El contacto ${contacto_id} no tiene notas.` }] };
         const nombres = await nombresDeUsuarios(notas.map((n) => n.userId ?? ''));
         const lineas = notas.map((n) => {
-          const titulo = n.title ? `${n.title} — ` : '';
-          return `- [${n.dateAdded ?? 'sin fecha'}] (ID: ${n.id})\n  Creada por: ${autorNota(n.userId ?? '', nombres)}\n  ${titulo}${n.body ?? '(sin texto)'}`;
+          const titulo = n.title ? `${limpiarHtml(n.title, 120)} — ` : '';
+          const cuerpo = limpiarHtml(n.body ?? '') || '(sin texto)';
+          const sangrado = cuerpo.split('\n').join('\n  ');
+          return `- [${n.dateAdded ?? 'sin fecha'}] (ID: ${n.id})\n  Creada por: ${autorNota(n.userId ?? '', nombres)}\n  ${titulo}${sangrado}`;
         });
         return { content: [{ type: 'text', text: `Notas del contacto ${contacto_id} (${notas.length}):\n${lineas.join('\n')}` }] };
       } catch (e: any) {
@@ -260,19 +262,26 @@ export function registrarHerramientasContactos(server: McpServer): void {
   server.registerTool(
     'agregar_nota_contacto',
     {
-      description: 'Agrega una nota interna a un contacto de GoHighLevel (queda en su historial, no se le envía nada al contacto). Puedes atribuirla a un usuario con usuario_id.',
+      description: 'Agrega una nota interna a un contacto de GoHighLevel (queda en su historial, no se le envía nada al contacto). Si no se indica usuario_id, primero se pide elegir a nombre de qué usuario queda la nota. Usa usuario_id="sistema" para no atribuirla a nadie.',
       inputSchema: {
         contacto_id: z.string().describe('ID del contacto'),
         nota: z.string().describe('Texto de la nota'),
-        usuario_id: z.string().default('').describe('ID del usuario al que se atribuye la nota. Si se omite, la nota queda a nombre de la integración.'),
+        usuario_id: z.string().default('').describe('ID del usuario al que se atribuye la nota (de listar_usuarios). Si se omite, se te pedirá elegirlo. Usa "sistema" para dejarla sin autor.'),
         location_id: z.string().default('').describe('ID de la ubicación. Si se omite, usa GHL_LOCATION_ID del .env'),
       },
     },
     async ({ contacto_id, nota, usuario_id, location_id }) => {
       if (!credencialesOk()) return { content: [{ type: 'text', text: errorCredenciales() }] };
       const loc = resolverLocation(location_id);
+      let autor = usuario_id.trim();
+      if (!autor) {
+        if (!loc) return faltaLocation();
+        const elegido = await elegirUsuario(server, loc, 'esta nota');
+        if ('pedirAlModelo' in elegido) return { content: [{ type: 'text', text: elegido.pedirAlModelo }] };
+        autor = elegido.id;
+      }
       const body: any = { body: nota };
-      if (usuario_id.trim()) body.userId = usuario_id.trim();
+      if (autor && autor.toLowerCase() !== 'sistema') body.userId = autor;
       try {
         const resp: any = await getCliente().contacts.createNote(
           { contactId: contacto_id },

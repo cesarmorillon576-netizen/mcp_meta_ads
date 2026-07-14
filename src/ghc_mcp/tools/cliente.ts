@@ -1,4 +1,6 @@
 import { HighLevel } from '@gohighlevel/api-client';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { truncar } from '../../meta_ads/helpers.js';
 
 export function credencialesOk(): boolean {
   return !!process.env.GHL_PRIVATE_TOKEN;
@@ -84,4 +86,85 @@ export function autorNota(userId: string, nombres: Map<string, string>): string 
   if (!userId) return 'sistema/automatización';
   const nombre = nombres.get(userId);
   return nombre ? `${nombre} (${userId})` : `usuario ${userId}`;
+}
+
+const ENTIDADES: Record<string, string> = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", hellip: '…', mdash: '—', ndash: '–',
+  aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú', ntilde: 'ñ', uuml: 'ü',
+  Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú', Ntilde: 'Ñ', Uuml: 'Ü',
+  iexcl: '¡', iquest: '¿', deg: '°', euro: '€', laquo: '«', raquo: '»',
+};
+
+export function limpiarHtml(texto: string, maxCaracteres = 600): string {
+  if (!texto) return '';
+  const plano = texto
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*(?=<\/li>)/gi, '')
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
+    .replace(/<li[^>]*>\s*(<p[^>]*>)?/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&([a-zA-Z]+);/g, (m, nombre) => ENTIDADES[nombre] ?? ENTIDADES[nombre.toLowerCase()] ?? m)
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n{2,}(?=• )/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .join('\n')
+    .trim();
+  return truncar(plano, maxCaracteres);
+}
+
+export type UsuarioElegido = { id: string } | { pedirAlModelo: string };
+
+export async function elegirUsuario(server: McpServer, loc: string, accion: string): Promise<UsuarioElegido> {
+  let usuarios: any[] = [];
+  try {
+    const resp: any = await getCliente().users.getUserByLocation({ locationId: loc });
+    usuarios = resp?.users ?? [];
+  } catch {
+    usuarios = [];
+  }
+  if (!usuarios.length)
+    return { pedirAlModelo: 'No se pudo obtener la lista de usuarios. Vuelve a llamar pasando usuario_id, o usuario_id="sistema" para no atribuir la nota.' };
+
+  const opciones = usuarios
+    .map((u) => ({
+      id: String(u.id ?? ''),
+      nombre: u.name || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email || 'Sin nombre',
+    }))
+    .filter((u) => u.id);
+
+  const nucleo: any = (server as any).server;
+  if (nucleo?.getClientCapabilities?.()?.elicitation) {
+    try {
+      const r: any = await nucleo.elicitInput({
+        message: `¿A qué usuario se atribuye ${accion}?`,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            usuario_id: {
+              type: 'string',
+              title: 'Usuario',
+              description: 'Usuario al que quedará atribuida la nota',
+              enum: opciones.map((u) => u.id),
+              enumNames: opciones.map((u) => u.nombre),
+            },
+          },
+          required: ['usuario_id'],
+        },
+      });
+      if (r?.action === 'accept' && r?.content?.usuario_id) return { id: String(r.content.usuario_id) };
+      return { pedirAlModelo: 'Selección de usuario cancelada: la nota no se creó.' };
+    } catch {
+      // el cliente dice soportar elicitation pero falló: caemos a la lista
+    }
+  }
+
+  const lista = opciones.map((u) => `- ${u.nombre} → usuario_id="${u.id}"`).join('\n');
+  return {
+    pedirAlModelo:
+      `Antes de crear la nota, pregúntale al usuario a nombre de quién debe quedar y vuelve a llamar a esta herramienta con ese usuario_id.\n\nUsuarios disponibles:\n${lista}\n\n(Si debe quedar sin autor, usa usuario_id="sistema".)`,
+  };
 }

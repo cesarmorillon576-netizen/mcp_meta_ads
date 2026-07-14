@@ -5,3 +5,4 @@ dist/
 *.exe
 windows_build/*.js
 windows_build/node.exe
+*.zip
